@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="theme.js"></script>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PolitQ — Support</title>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+import { buildPage } from './layout.js';
+import { getSession, getDb, ref, push, onValue, update, remove, sanitize, icon, isAdmin, ts } from './shared.js';
+
+const session = getSession();
+if(!session){ window.location.href='index.html'; }
+
+buildPage('support',
+  '<div class="page-content" id="supportPage"></div>',
+  `
+  .ticket-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+  .ticket-card.open{border-left:3px solid #7ab8f5}
+  .ticket-card.resolved{border-left:3px solid var(--green-hi);opacity:.7}
+  .ticket-card.closed{border-left:3px solid var(--text3);opacity:.6}
+  .ticket-status{font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;display:inline-block}
+  .status-open{background:#1a2e3a;color:#7ab8f5}
+  .status-resolved{background:var(--green);color:var(--green-hi)}
+  .status-closed{background:var(--bg3);color:var(--text3)}
+  .reply-card{background:var(--bg3);border-radius:6px;padding:10px 12px;margin-top:8px;font-size:13px;line-height:1.5}
+  .reply-card.admin-reply{background:#1a2a1a;border-left:3px solid var(--green-hi)}
+  .new-ticket-form{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:20px}
+  .ticket-header{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+  `
+);
+
+const db = getDb();
+let tickets = {};
+let expandedId = null;
+
+onValue(ref(db, 'tickets'), snap => {
+  tickets = snap.val() || {};
+  render();
+});
+
+function render() {
+  const el = document.getElementById('supportPage');
+  if(!el) return;
+
+  const myTickets = Object.entries(tickets)
+    .filter(([,t]) => isAdmin() || t.username === session)
+    .sort((a,b) => (b[1].ts||0) - (a[1].ts||0));
+
+  const formHtml = '<div class="new-ticket-form">'
+    + '<div style="font-size:16px;font-weight:700;margin-bottom:14px">' + icon('message',16) + ' Open a Support Ticket</div>'
+    + '<input class="input" id="ticketSubject" placeholder="Subject" style="margin-bottom:10px">'
+    + '<select class="input" id="ticketCategory" style="margin-bottom:10px">'
+    + '<option value="bug">Bug Report</option>'
+    + '<option value="account">Account Issue</option>'
+    + '<option value="abuse">Report Abuse</option>'
+    + '<option value="other">Other</option>'
+    + '</select>'
+    + '<textarea class="input" id="ticketBody" placeholder="Describe your issue in detail..." style="min-height:100px;margin-bottom:10px"></textarea>'
+    + '<button class="btn btn-primary" onclick="submitTicket()">' + icon('send',14) + ' Submit Ticket</button>'
+    + '</div>';
+
+  const adminBanner = isAdmin()
+    ? '<div style="background:#1a2e1a;border:1px solid var(--green-hi);border-radius:var(--radius);padding:12px;margin-bottom:16px;font-size:13px;color:var(--green-hi);display:flex;align-items:center;gap:8px">'
+      + icon('crown',14) + ' Admin view — showing all tickets</div>'
+    : '';
+
+  const ticketsHtml = myTickets.length === 0
+    ? '<div class="empty-state">No tickets yet. Submit one above if you need help.</div>'
+    : myTickets.map(([id,t]) => renderTicket(id,t)).join('');
+
+  el.innerHTML = formHtml + adminBanner
+    + '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">'
+    + (isAdmin() ? 'All Tickets' : 'Your Tickets') + ' — ' + myTickets.length + '</div>'
+    + ticketsHtml;
+}
+
+function renderTicket(id, t) {
+  const isExpanded = expandedId === id;
+  const statusClass = 'status-' + (t.status||'open');
+  const statusLabel = (t.status||'open').charAt(0).toUpperCase() + (t.status||'open').slice(1);
+  const catLabels = {bug:'Bug Report',account:'Account Issue',abuse:'Report Abuse',other:'Other'};
+
+  const replies = Object.entries(t.replies||{}).sort((a,b)=>(a[1].ts||0)-(b[1].ts||0));
+  const repliesHtml = replies.map(([,r]) =>
+    '<div class="reply-card ' + (r.isAdmin?'admin-reply':'') + '">'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
+    + '<b style="font-size:13px">' + sanitize(r.from) + '</b>'
+    + (r.isAdmin ? '<span style="font-size:11px;color:var(--admin)">Admin</span>' : '')
+    + '<span style="font-size:11px;color:var(--text3);margin-left:auto">' + (r.timeStr||'') + '</span>'
+    + '</div>'
+    + '<div style="color:#ddd">' + sanitize(r.text) + '</div>'
+    + '</div>'
+  ).join('');
+
+  const replyForm = isExpanded ? '<div style="margin-top:10px;display:flex;gap:8px">'
+    + '<input class="input" id="reply-'+id+'" placeholder="Write a reply..." style="flex:1">'
+    + '<button class="btn btn-primary" onclick="sendReply(\''+id+'\')">' + icon('send',13) + '</button>'
+    + '</div>' : '';
+
+  const adminActions = isAdmin() && isExpanded ? '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">'
+    + (t.status!=='resolved' ? '<button class="btn btn-green" onclick="setStatus(\''+id+'\',\'resolved\')">' + icon('accept',13) + ' Mark Resolved</button>' : '')
+    + (t.status!=='closed' ? '<button class="btn" style="color:var(--text3)" onclick="setStatus(\''+id+'\',\'closed\')">Close Ticket</button>' : '')
+    + (t.status==='closed'||t.status==='resolved' ? '<button class="btn btn-blue" onclick="setStatus(\''+id+'\',\'open\')">Reopen</button>' : '')
+    + '<button class="btn btn-red" onclick="deleteTicket(\''+id+'\')">' + icon('delete',13) + ' Delete</button>'
+    + '</div>' : '';
+
+  return '<div class="ticket-card ' + (t.status||'open') + '" id="ticket-'+id+'">'
+    + '<div class="ticket-header">'
+    + '<span class="ticket-status ' + statusClass + '">' + statusLabel + '</span>'
+    + '<span style="font-size:13px;font-weight:600;flex:1">' + sanitize(t.subject||'No subject') + '</span>'
+    + '<span style="font-size:11px;color:var(--text3)">' + (t.timeStr||'') + '</span>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'
+    + '<span style="font-size:12px;color:var(--text2)">From: <b style="color:var(--text)">' + sanitize(t.username) + '</b></span>'
+    + '<span style="font-size:12px;color:var(--text2)">Category: <b style="color:var(--text)">' + (catLabels[t.category]||'Other') + '</b></span>'
+    + '<span style="font-size:12px;color:var(--text2)">' + (replies.length) + ' repl' + (replies.length===1?'y':'ies') + '</span>'
+    + '</div>'
+    + '<div style="font-size:14px;color:#ddd;line-height:1.6;margin-bottom:8px">' + sanitize(t.body||'') + '</div>'
+    + (isExpanded ? repliesHtml + replyForm + adminActions : '')
+    + '<button class="btn" style="margin-top:8px;font-size:12px" onclick="toggleExpand(\''+id+'\')">'
+    + (isExpanded ? 'Collapse' : 'View / Reply') + '</button>'
+    + '</div>';
+}
+
+window.submitTicket = async function() {
+  const subject = (document.getElementById('ticketSubject').value||'').trim();
+  const body = (document.getElementById('ticketBody').value||'').trim();
+  const category = document.getElementById('ticketCategory').value;
+  if(!subject||!body){ alert('Please fill in subject and description.'); return; }
+  await push(ref(db,'tickets'),{
+    username: session, subject: subject.slice(0,100),
+    body: body.slice(0,2000), category,
+    status: 'open', ts: Date.now(), timeStr: ts(), replies: {}
+  });
+  document.getElementById('ticketSubject').value = '';
+  document.getElementById('ticketBody').value = '';
+};
+
+window.sendReply = async function(id) {
+  const input = document.getElementById('reply-'+id);
+  const text = (input.value||'').trim();
+  if(!text) return;
+  await push(ref(db,'tickets/'+id+'/replies'),{
+    from: session, text: text.slice(0,1000),
+    isAdmin: isAdmin(), ts: Date.now(), timeStr: ts()
+  });
+  input.value = '';
+};
+
+window.setStatus = async function(id, status) {
+  await update(ref(db,'tickets/'+id),{status});
+};
+
+window.deleteTicket = async function(id) {
+  if(!confirm('Delete this ticket?')) return;
+  await remove(ref(db,'tickets/'+id));
+};
+
+window.toggleExpand = function(id) {
+  expandedId = expandedId === id ? null : id;
+  render();
+  if(expandedId) {
+    const el = document.getElementById('ticket-'+id);
+    if(el) el.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+};
+</script>
+</body>
+</html>

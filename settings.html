@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="theme.js"></script><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PolitQ — Settings</title></head>
+<body><div id="app"></div>
+<script type="module">
+import { buildPage } from './layout.js';
+import { getSession,getDb,ref,onValue,update,remove,push,sanitize,tagHtml,icon,isAdmin,ALL_TAGS,ts,ADMIN_USER } from './shared.js';
+const session=getSession();
+if(!session){window.location.href='index.html';}
+
+buildPage('settings','<div class="page-content" id="settingsContent"><div class="empty-state">Loading...</div></div>',`
+.admin-row{display:flex;align-items:center;gap:10px;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:6px;margin-bottom:6px}
+.banned-label{font-size:11px;color:var(--red-hi);background:rgba(239,83,80,.1);border:1px solid #5a2a2a;border-radius:4px;padding:1px 6px}
+.premium-label{font-size:11px;color:#c0a060;background:rgba(192,160,96,.1);border:1px solid #4a3a10;border-radius:4px;padding:1px 6px}
+.theme-cards{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+.theme-card{flex:1;min-width:120px;border-radius:10px;padding:14px;cursor:pointer;border:2px solid transparent;transition:.15s;text-align:center}
+.theme-card:hover{border-color:#555}
+.theme-card.active{border-color:#fff}
+.theme-card-name{font-size:13px;font-weight:700;margin-top:8px}
+.theme-card-desc{font-size:11px;opacity:.6;margin-top:3px}
+.color-presets{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.color-dot{width:32px;height:32px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:.15s}
+.color-dot:hover,.color-dot.active{border-color:#fff;transform:scale(1.1)}
+.mode-row{display:flex;gap:10px;margin:10px 0}
+.mode-btn{flex:1;padding:12px;border-radius:8px;border:2px solid var(--border);background:var(--card);cursor:pointer;text-align:center;transition:.15s;font-family:inherit}
+.mode-btn:hover{border-color:#555}
+.mode-btn.active{border-color:#fff}
+.mode-icon{font-size:22px;margin-bottom:4px}
+.mode-label{font-size:13px;font-weight:700;color:var(--text)}
+`);
+
+const db=getDb();
+let users={};
+onValue(ref(db,'users'),function(snap){users=snap.val()||{};render();});
+
+const COLORS=[
+  {name:'Default',value:'#0a0a0a'},
+  {name:'Navy',value:'#030814'},
+  {name:'Forest',value:'#030f05'},
+  {name:'Crimson',value:'#0f0305'},
+  {name:'Purple',value:'#08030f'},
+  {name:'Gold',value:'#0c0900'},
+  {name:'Teal',value:'#030d0d'},
+  {name:'Rose',value:'#0f0308'},
+];
+
+function shadeColor(hex,amt){
+  const clean=hex.replace('#','');
+  const num=parseInt(clean.length===3?clean.split('').map(function(c){return c+c;}).join(''):clean,16);
+  const r=Math.min(255,Math.max(0,(num>>16)+amt));
+  const g=Math.min(255,Math.max(0,((num>>8)&0xff)+amt));
+  const b=Math.min(255,Math.max(0,(num&0xff)+amt));
+  return '#'+[r,g,b].map(function(v){return v.toString(16).padStart(2,'0');}).join('');
+}
+
+function saveAndApply(data){
+  // Save to localStorage for instant cross-page apply
+  localStorage.setItem('pq_theme', JSON.stringify(data));
+  // Save to Firebase for persistence
+  update(ref(db,'users/'+session), data);
+  applyThemeData(data);
+}
+
+function applyThemeData(data){
+  const r=document.documentElement.style;
+  if(data.themeMode==='light'){
+    r.setProperty('--bg','#f0f0f0');
+    r.setProperty('--bg2','#e4e4e4');
+    r.setProperty('--bg3','#d8d8d8');
+    r.setProperty('--card','#e8e8e8');
+    r.setProperty('--border','#ccc');
+    r.setProperty('--text','#111');
+    r.setProperty('--text2','#555');
+    r.setProperty('--text3','#999');
+  } else {
+    const base=data.themeBg||'#0a0a0a';
+    r.setProperty('--bg',base);
+    r.setProperty('--bg2',data.themeBg2||shadeColor(base,8));
+    r.setProperty('--bg3',data.themeBg3||shadeColor(base,18));
+    r.setProperty('--card',data.themeCard||shadeColor(base,12));
+    r.setProperty('--border',shadeColor(base,32));
+    r.setProperty('--text','#e8e8e8');
+    r.setProperty('--text2','#888');
+    r.setProperty('--text3','#444');
+  }
+  // Layout preset
+  const layout=data.themeLayout||'default';
+  if(layout==='bubble'){
+    r.setProperty('--radius','16px');
+    document.body.style.fontFamily="'SF Pro Rounded',system-ui,sans-serif";
+  } else if(layout==='tech'){
+    r.setProperty('--radius','2px');
+    document.body.style.fontFamily="'Courier New',Courier,monospace";
+    // Add scanline effect
+    if(!document.getElementById('tech-overlay')){
+      const o=document.createElement('div');
+      o.id='tech-overlay';
+      o.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:9999;background:repeating-linear-gradient(0deg,rgba(0,255,0,0.015) 0px,rgba(0,255,0,0.015) 1px,transparent 1px,transparent 4px)';
+      document.body.appendChild(o);
+    }
+    r.setProperty('--text','#00ff41');
+    r.setProperty('--text2','#00aa2a');
+    r.setProperty('--text3','#005515');
+    r.setProperty('--green-hi','#00ff41');
+    if(!data.themeMode||data.themeMode==='dark'){
+      r.setProperty('--bg','#000');
+      r.setProperty('--bg2','#050505');
+      r.setProperty('--bg3','#0a0a0a');
+      r.setProperty('--card','#070707');
+      r.setProperty('--border','#003a10');
+    }
+  } else {
+    r.setProperty('--radius','8px');
+    document.body.style.fontFamily="'Segoe UI',system-ui,sans-serif";
+    const o=document.getElementById('tech-overlay');
+    if(o)o.remove();
+  }
+}
+
+function render(){
+  const el=document.getElementById('settingsContent');if(!el)return;
+  const u=users[session]||{};
+  const myTags=Object.keys(u.tags||{});
+  const isQplus=!!u.qplus;
+  const curMode=u.themeMode||'dark';
+  const curLayout=u.themeLayout||'default';
+  const curBg=u.themeBg||'#0a0a0a';
+
+  const modeSection=`
+    <div class="sep"></div>
+    <div class="section-title">Display Mode</div>
+    <div class="mode-row">
+      <button class="mode-btn${curMode==='dark'?' active':''}" onclick="setMode('dark')">
+        <div class="mode-icon"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
+        <div class="mode-label">Dark</div>
+      </button>
+      <button class="mode-btn${curMode==='light'?' active':''}" onclick="setMode('light')">
+        <div class="mode-icon"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg></div>
+        <div class="mode-label">Light</div>
+      </button>
+    </div>
+  `;
+
+  const premiumSection=isQplus?`
+    <div class="sep"></div>
+    <div class="section-title" style="color:#c0a060">&#9733; Q+ — Theme</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:12px">Choose your app layout style.</div>
+    <div class="theme-cards">
+      <div class="theme-card${curLayout==='default'?' active':''}" style="background:var(--card);border-color:${curLayout==='default'?'#fff':'transparent'}" onclick="setLayout('default')">
+        <div style="display:flex;gap:3px;justify-content:center">
+          <div style="width:18px;height:12px;background:var(--bg3);border-radius:2px"></div>
+          <div style="width:30px;height:12px;background:var(--bg3);border-radius:2px"></div>
+        </div>
+        <div class="theme-card-name">Default</div>
+        <div class="theme-card-desc">Clean and minimal</div>
+      </div>
+      <div class="theme-card${curLayout==='bubble'?' active':''}" style="background:var(--card);border-color:${curLayout==='bubble'?'#fff':'transparent'}" onclick="setLayout('bubble')">
+        <div style="display:flex;gap:3px;justify-content:center">
+          <div style="width:18px;height:12px;background:var(--bg3);border-radius:99px"></div>
+          <div style="width:30px;height:12px;background:var(--bg3);border-radius:99px"></div>
+        </div>
+        <div class="theme-card-name">Bubble</div>
+        <div class="theme-card-desc">Soft and rounded</div>
+      </div>
+      <div class="theme-card${curLayout==='tech'?' active':''}" style="background:#000;border-color:${curLayout==='tech'?'#00ff41':'transparent'}" onclick="setLayout('tech')">
+        <div style="display:flex;gap:3px;justify-content:center">
+          <div style="width:18px;height:12px;background:#003a10;border-radius:0"></div>
+          <div style="width:30px;height:12px;background:#003a10;border-radius:0"></div>
+        </div>
+        <div class="theme-card-name" style="color:#00ff41;font-family:monospace">Tech</div>
+        <div class="theme-card-desc" style="color:#00aa2a;font-family:monospace">Hacker mode</div>
+      </div>
+    </div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:8px;margin-top:4px">Background colour</div>
+    <div class="color-presets">
+      ${COLORS.map(function(c){return '<div class="color-dot'+(curBg===c.value?' active':'')+'" title="'+c.name+'" style="background:'+c.value+';box-shadow:inset 0 0 0 1px rgba(255,255,255,0.15)" onclick="setColor(\''+c.value+'\')"></div>';}).join('')}
+      <input type="color" id="customColor" value="${curBg}" title="Custom" style="width:32px;height:32px;border-radius:50%;border:2px solid var(--border);cursor:pointer;padding:0;background:transparent" onchange="setColor(this.value)">
+    </div>
+  `:'<div class="sep"></div><div style="background:var(--card);border:1px solid #4a3a10;border-radius:8px;padding:14px;text-align:center"><div style="font-size:14px;font-weight:700;color:#c0a060;margin-bottom:4px">&#9733; Q+</div><div style="font-size:13px;color:var(--text2)">Ask an admin for Q+ to unlock layout themes and custom colours.</div></div>';
+
+  const adminSection=isAdmin()?`
+    <div class="sep"></div>
+    <div class="section-title" style="color:var(--admin)">${icon('crown',12)} Admin Panel</div>
+    ${Object.entries(users).filter(function(e){return e[0]!==ADMIN_USER;}).map(function(e){
+      const uname=e[0],ud=e[1];
+      const av=ud.avatarB64?'<div style="width:32px;height:32px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="'+ud.avatarB64+'" style="width:100%;height:100%;object-fit:cover"></div>':'<div style="width:32px;height:32px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">'+uname.slice(0,2).toUpperCase()+'</div>';
+      const banBtn=ud.banned?'<button class="btn btn-green" onclick="unbanUser(\''+uname+'\')">Unban</button>':'<button class="btn btn-red" onclick="banUser(\''+uname+'\')">Ban</button>';
+      const premBtn=ud.qplus?'<button class="btn" style="border-color:#4a3a10;color:#c0a060;font-size:12px" onclick="revokeQplus(\''+uname+'\')">&#9733; Revoke</button>':'<button class="btn" style="border-color:#4a3a10;color:#c0a060;font-size:12px" onclick="grantQplus(\''+uname+'\')">&#9733; Q+</button>';
+      return '<div class="admin-row">'+av+'<span style="flex:1;font-size:13px;font-weight:500"><a href="profile.html?u='+encodeURIComponent(uname)+'" style="color:var(--text);text-decoration:none">'+sanitize(uname)+'</a>'+(ud.banned?' <span class="banned-label">BANNED</span>':'')+(ud.qplus?' <span class="premium-label">&#9733; Q+</span>':'')+'</span><div style="display:flex;gap:5px">'+premBtn+banBtn+'</div></div>';
+    }).join('')}
+  `:'';
+
+  el.innerHTML=`
+    <div class="section-title">Political Tags</div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px" id="tagPicker">
+      ${ALL_TAGS.map(function(t){return tagHtml(t,true,myTags.includes(t));}).join('')}
+    </div>
+    ${modeSection}
+    ${premiumSection}
+    ${adminSection}
+  `;
+
+  document.getElementById('tagPicker').querySelectorAll('.tag.clickable').forEach(function(tag){
+    tag.onclick=async function(){
+      tag.classList.toggle('sel');
+      const sel={};
+      document.querySelectorAll('#tagPicker .tag.sel').forEach(function(t){sel[t.textContent]=true;});
+      await update(ref(db,'users/'+session),{tags:sel});
+    };
+  });
+
+  applyThemeData(u);
+}
+
+window.setMode=async function(mode){
+  const u=users[session]||{};
+  const data={themeMode:mode,themeBg:u.themeBg||'#0a0a0a',themeBg2:u.themeBg2,themeBg3:u.themeBg3,themeCard:u.themeCard,themeLayout:u.themeLayout||'default'};
+  saveAndApply(data);
+  render();
+};
+
+window.setLayout=async function(layout){
+  const u=users[session]||{};
+  const data={themeMode:u.themeMode||'dark',themeBg:u.themeBg||'#0a0a0a',themeBg2:u.themeBg2,themeBg3:u.themeBg3,themeCard:u.themeCard,themeLayout:layout};
+  saveAndApply(data);
+  render();
+};
+
+window.setColor=async function(color){
+  const u=users[session]||{};
+  const data={themeMode:u.themeMode||'dark',themeBg:color,themeBg2:shadeColor(color,8),themeBg3:shadeColor(color,18),themeCard:shadeColor(color,12),themeLayout:u.themeLayout||'default'};
+  saveAndApply(data);
+  render();
+};
+
+window.grantQplus=async function(u){await update(ref(db,'users/'+u),{qplus:true});};
+window.revokeQplus=async function(u){await update(ref(db,'users/'+u),{qplus:false});};
+window.banUser=async function(u){
+  if(!isAdmin()||u===ADMIN_USER)return;
+  await update(ref(db,'users/'+u),{banned:true});
+  await remove(ref(db,'online/'+u));
+  await push(ref(db,'chat'),{type:'system',text:u+' has been banned.',ts:Date.now(),timeStr:ts(),isBan:true});
+};
+window.unbanUser=async function(u){
+  if(!isAdmin())return;
+  await update(ref(db,'users/'+u),{banned:false});
+  await push(ref(db,'chat'),{type:'system',text:u+' has been unbanned.',ts:Date.now(),timeStr:ts()});
+};
+</script></body></html>

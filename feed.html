@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="theme.js"></script><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PolitQ — Feed</title></head>
+<body><div id="app"></div>
+<script type="module">
+import { buildPage } from './layout.js';
+import { getSession, getDb, ref, push, onValue, remove, update, set, query, orderByChild, limitToLast, sanitize, renderMentions, hasMention, tagHtml, icon, isAdmin, friendStatus, ts, ADMIN_USER, TOPICS } from './shared.js';
+
+const session = getSession();
+if(!session){ window.location.href='index.html'; }
+
+buildPage('feed', `<div class="page-content" id="feedContent">
+  <div id="composer"></div>
+  <div id="posts"></div>
+</div>`, `
+.post-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px}
+.post-card.pinned{border-color:#4a3a10;background:#161208}
+.pin-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#c0a060;background:#2a1e04;border:1px solid #4a3a10;border-radius:4px;padding:2px 7px;margin-bottom:8px}
+.post-av{width:38px;height:38px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;overflow:hidden;cursor:pointer}
+.post-av:hover{opacity:.8}
+.post-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.post-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.topic-badge{font-size:11px;padding:2px 7px;border-radius:4px;background:var(--bg3);color:var(--text2);border:1px solid var(--border)}
+.post-body{font-size:14px;line-height:1.6;margin:10px 0;color:#ddd;white-space:pre-wrap;word-break:break-word}
+.voted-up{border-color:var(--green-hi)!important;color:var(--green-hi)!important}
+.voted-down{border-color:var(--red-hi)!important;color:var(--red-hi)!important}
+.composer{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:14px}
+`);
+
+const db = getDb();
+let users = {}, posts = {};
+
+onValue(ref(db,'users'), snap=>{ users=snap.val()||{}; renderComposer(); });
+onValue(query(ref(db,'posts'),orderByChild('ts'),limitToLast(100)), snap=>{
+  posts=snap.val()||{};
+  renderPosts();
+});
+
+function renderComposer(){
+  const u=users[session]||{};
+  const av=u.avatarB64?`<div class="post-av"><img src="${u.avatarB64}"></div>`:`<div class="post-av">${(session||'?').slice(0,2).toUpperCase()}</div>`;
+  document.getElementById('composer').innerHTML=`<div class="composer">
+    <div style="display:flex;gap:10px;margin-bottom:10px">${av}<textarea class="input" id="postText" placeholder="Make your case... use @username to mention someone"></textarea></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <select class="input" id="postTopic" style="width:auto;padding:7px 10px">${TOPICS.map(t=>`<option>${t}</option>`).join('')}</select>
+      <button class="btn btn-primary" onclick="submitPost()">${icon('send',14)} Post</button>
+    </div>
+  </div>`;
+}
+
+function renderPosts(){
+  const el=document.getElementById('posts');if(!el)return;
+  const list=Object.entries(posts).sort((a,b)=>{
+    if(b[1].pinned&&!a[1].pinned)return 1;
+    if(a[1].pinned&&!b[1].pinned)return -1;
+    return(b[1].ts||0)-(a[1].ts||0);
+  });
+  if(!list.length){el.innerHTML=`<div class="empty-state">No posts yet. Be the first.</div>`;return;}
+  el.innerHTML=list.map(([id,p])=>postCard(id,p)).join('');
+}
+
+function postCard(id,p){
+  if(!p)return'';
+  const u=users[p.username]||{};
+  const upvoted=(p.upvoters||{})[session];
+  const downvoted=(p.downvoters||{})[session];
+  const tags=Object.keys(p.tags||{}).map(t=>tagHtml(t)).join('');
+  const isMentioned=hasMention(p.text||'',session);
+  const avEl=u.avatarB64?`<div class="post-av" onclick="viewProfile('${p.username}')"><img src="${u.avatarB64}"></div>`:`<div class="post-av" onclick="viewProfile('${p.username}')">${(p.username||'?').slice(0,2).toUpperCase()}</div>`;
+  const fs=friendStatus(session,users,p.username);
+  let friendBtn='';
+  if(p.username!==session){
+    if(fs==='none')friendBtn=`<button class="btn btn-blue" onclick="addFriend('${p.username}')">${icon('addfriend',12)} Add Friend</button>`;
+    else if(fs==='sent')friendBtn=`<button class="btn" disabled style="color:var(--text3)">Pending</button>`;
+    else if(fs==='received')friendBtn=`<button class="btn btn-green" onclick="acceptFriend('${p.username}')">${icon('accept',12)} Accept</button>`;
+    else if(fs==='friends')friendBtn=`<button class="btn btn-green" style="cursor:default">${icon('accept',12)} Friends</button>`;
+  }
+  let adminBtns='';
+  // report button for non-admins
+  let reportBtn='';
+  if(!isAdmin()&&p.username!==session) reportBtn='<button class="btn" style="color:var(--text3)" onclick="reportPost(\''+id+'\',\''+sanitize(p.username)+'\')">' + icon('ban',12) + ' Report</button>';
+  if(isAdmin()){
+    adminBtns+=`<button class="btn btn-amber" onclick="togglePin('${id}')">${icon('pin',12)} ${p.pinned?'Unpin':'Pin'}</button>`;
+    if(p.username!==ADMIN_USER) adminBtns+=`<button class="btn btn-red" onclick="deletePost('${id}')">${icon('delete',12)} Delete</button><button class="btn btn-amber" onclick="banUser('${p.username}')">${icon('ban',12)} Ban</button>`;
+  }
+  return`<div class="post-card${isMentioned?' mention-highlight':''}${p.pinned?' pinned':''}" id="post-${id}">
+    ${p.pinned?`<div class="pin-badge">${icon('pin',11)} Pinned</div>`:''}
+    <div style="display:flex;gap:10px;align-items:flex-start">
+      ${avEl}
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:14px;font-weight:600;cursor:pointer" onclick="viewProfile('${sanitize(p.username)}')">${sanitize(p.username)}${p.username===ADMIN_USER?` ${icon('crown',13)}`:''}
+          </span>
+          <div style="display:flex;flex-wrap:wrap;gap:3px">${tags}<span class="topic-badge">${sanitize(p.topic||'')}</span></div>
+          <span style="font-size:11px;color:var(--text3);margin-left:auto">${p.timeStr||''}</span>
+        </div>
+        <div class="post-body">${renderMentions(p.text||'')}</div>
+        <div class="post-actions">
+          <button class="btn ${upvoted?'voted-up':''}" onclick="vote('${id}',1)">${icon('upvote',12)} ${Object.keys(p.upvoters||{}).length}</button>
+          <button class="btn ${downvoted?'voted-down':''}" onclick="vote('${id}',-1)">${icon('downvote',12)} ${Object.keys(p.downvoters||{}).length}</button>
+          <button class="btn" onclick="reply('${sanitize(p.username)}')">${icon('reply',12)} Reply</button>
+          <button class="btn" onclick="challenge('${sanitize(p.username)}')">${icon('send',12)} Challenge</button>
+          ${reportBtn}${friendBtn}${adminBtns}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+window.submitPost=async()=>{
+  const text=(document.getElementById('postText').value||'').trim();if(!text)return;
+  const topic=document.getElementById('postTopic').value;
+  const u=users[session]||{};
+  await push(ref(db,'posts'),{username:session,tags:u.tags||{},topic,text:text.slice(0,1000),upvoters:{},downvoters:{},ts:Date.now(),timeStr:ts()});
+  document.getElementById('postText').value='';
+};
+window.vote=async(id,dir)=>{
+  const p=posts[id];if(!p)return;
+  const upRef=ref(db,`posts/${id}/upvoters/${session}`);
+  const downRef=ref(db,`posts/${id}/downvoters/${session}`);
+  const upvoted=(p.upvoters||{})[session],downvoted=(p.downvoters||{})[session];
+  if(dir===1){if(upvoted)await remove(upRef);else{await set(upRef,true);await remove(downRef);}}
+  else{if(downvoted)await remove(downRef);else{await set(downRef,true);await remove(upRef);}}
+};
+window.deletePost=(id)=>remove(ref(db,`posts/${id}`));
+window.togglePin=async(id)=>{const p=posts[id];if(p)await update(ref(db,`posts/${id}`),{pinned:!p.pinned});};
+window.reply=(u)=>{const t=document.getElementById('postText');if(t){t.value=`@${u} `;t.focus();}};
+window.challenge=(u)=>{const t=document.getElementById('postText');if(t){t.value=`@${u} I challenge your position: `;t.focus();}};
+window.viewProfile=(u)=>{ window.location.href=`profile.html?u=${encodeURIComponent(u)}`; };
+window.addFriend=async(target)=>{
+  await update(ref(db,`users/${session}/sentRequests`),{[target]:true});
+  await update(ref(db,`users/${target}/receivedRequests`),{[session]:true});
+};
+window.acceptFriend=async(from)=>{
+  await update(ref(db,`users/${session}/friends`),{[from]:true});
+  await update(ref(db,`users/${from}/friends`),{[session]:true});
+  await remove(ref(db,`users/${session}/receivedRequests/${from}`));
+  await remove(ref(db,`users/${from}/sentRequests/${session}`));
+};
+window.reportPost=async(postId, username)=>{
+  const reason=prompt('Why are you reporting this post?');
+  if(!reason||!reason.trim()) return;
+  await push(ref(db,'reports'),{postId,username,reportedBy:session,reason:reason.trim(),ts:Date.now(),timeStr:ts()});
+  alert('Report submitted. Admins will review it.');
+};
+window.banUser=async(username)=>{
+  if(!isAdmin()||username===ADMIN_USER)return;
+  await update(ref(db,`users/${username}`),{banned:true});
+  await remove(ref(db,`online/${username}`));
+  await push(ref(db,'chat'),{type:'system',text:`${username} has been banned by the admin.`,ts:Date.now(),timeStr:ts(),isBan:true});
+};
+</script>
+</body></html>

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PolitQ — Global Chat</title></head>
+<body><div id="app"></div>
+<script type="module">
+import { buildPage } from './layout.js';
+import { getSession, getDb, ref, push, onValue, remove, query, orderByChild, limitToLast, sanitize, renderMentions, hasMention, icon, isAdmin, ts, tagClass, ADMIN_USER } from './shared.js';
+const session=getSession();
+if(!session){window.location.href='index.html';}
+buildPage('chat',`<div class="page-flex"><div class="userlist" id="userlist"></div><div class="chat-main"><div class="chat-topbar"><button class="ul-toggle" id="ulToggle" onclick="toggleUserList()">&#9776; Online</button><span>Global Chat</span><span style="font-size:12px;color:var(--text2)">Real-time</span></div><div class="chat-msgs" id="chatMsgs"></div><div class="chat-foot" id="chatFoot"></div></div></div>`,`
+.userlist{width:190px;border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;background:var(--bg2);transition:width .2s,opacity .2s}
+.userlist.hidden{width:0;overflow:hidden;opacity:0;border:none}
+.ul-toggle{display:none;padding:6px 10px;border:none;background:var(--bg3);color:var(--text2);cursor:pointer;font-size:12px;border-radius:6px;margin:8px 8px 0;flex-shrink:0}
+@media(max-width:768px){.ul-toggle{display:block}.userlist{width:150px}.userlist.hidden{width:0}}
+.ul-hdr{padding:11px 12px;font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px}
+.ul-scroll{flex:1;overflow-y:auto;padding:6px}
+.ul-item{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:6px;cursor:pointer;margin-bottom:1px}
+.ul-item:hover{background:var(--bg3)}
+.ul-av{width:30px;height:30px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;overflow:hidden}
+.ul-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.chat-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.chat-topbar{padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.chat-msgs{flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:8px}
+.chat-msg{display:flex;gap:10px;align-items:flex-start;padding:4px 6px;border-radius:6px}
+.chat-msg.is-mention{background:var(--mention-bg);border-left:3px solid var(--mention-border)}
+.cm-av{width:30px;height:30px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;overflow:hidden;cursor:pointer}
+.cm-av:hover{opacity:.8}
+.cm-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.cm-name{font-size:13px;font-weight:600;cursor:pointer}.cm-name:hover{text-decoration:underline}
+.cm-time{font-size:11px;color:var(--text3)}
+.cm-text{font-size:13px;color:#ccc;line-height:1.45;word-break:break-word}
+.cm-del{opacity:0;font-size:11px;padding:2px 6px;border-radius:4px;border:1px solid #5a2a2a;background:transparent;color:var(--red-hi);cursor:pointer;margin-left:4px}
+.chat-msg:hover .cm-del{opacity:1}
+.sys-msg{font-size:12px;color:#666;text-align:center;padding:3px 0;font-style:italic}
+.sys-msg.ban{color:#cd853f}
+.chat-foot{padding:10px 14px;border-top:1px solid var(--border);flex-shrink:0}
+.chat-input-row{display:flex;gap:8px}
+`);
+const db=getDb();
+let users={},msgs={};
+onValue(ref(db,'users'),snap=>{users=snap.val()||{};renderUserList();});
+onValue(ref(db,'online'),snap=>{const online=snap.val()||{};renderUserList(online);});
+onValue(query(ref(db,'chat'),orderByChild('ts'),limitToLast(200)),snap=>{msgs=snap.val()||{};renderMsgs();});
+
+function renderUserList(onlineOverride){
+  const el=document.getElementById('userlist');if(!el)return;
+  const online=onlineOverride||{};
+  const onlineUsers=Object.keys(online).filter(u=>users[u]&&!users[u].banned);
+  el.innerHTML=`<div class="ul-hdr">${icon('online',14)}<span>Online</span><span style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;font-size:10px;padding:1px 5px">${onlineUsers.length}</span></div>
+  <div class="ul-scroll">${onlineUsers.map(u=>{
+    const ud=users[u]||{};
+    const tag=Object.keys(ud.tags||{})[0];
+    const av=ud.avatarB64?`<div class="ul-av"><img src="${ud.avatarB64}"></div>`:`<div class="ul-av">${(u||'?').slice(0,2).toUpperCase()}</div>`;
+    return`<div class="ul-item" onclick="viewProfile('${u}')">${av}<div style="flex:1;overflow:hidden"><div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sanitize(u)}</div>${tag?`<div class="tag tag-${tagClass(tag)}" style="font-size:9px;padding:1px 4px;margin-top:2px">${tag}</div>`:''}</div></div>`;
+  }).join('')}</div>`;
+}
+function renderMsgs(){
+  const el=document.getElementById('chatMsgs');if(!el)return;
+  const sorted=Object.entries(msgs).sort((a,b)=>(a[1].ts||0)-(b[1].ts||0));
+  el.innerHTML=sorted.map(([id,m])=>renderMsg(id,m)).join('');
+  el.scrollTop=el.scrollHeight;
+  renderFoot();
+}
+function renderMsg(id,m){
+  if(!m)return'';
+  if(m.type==='system')return`<div class="sys-msg ${m.isBan?'ban':''}">${sanitize(m.text||'')} <span style="color:var(--text3)">${m.timeStr||''}</span></div>`;
+  const u=users[m.username]||{};
+  const isMention=hasMention(m.text||'',session);
+  const av=u.avatarB64?`<div class="cm-av" onclick="viewProfile('${m.username}')"><img src="${u.avatarB64}"></div>`:`<div class="cm-av" onclick="viewProfile('${m.username}')">${(m.username||'?').slice(0,2).toUpperCase()}</div>`;
+  const del=isAdmin()&&m.username!==ADMIN_USER?`<button class="cm-del" onclick="delMsg('${id}')">delete</button>`:'';
+  const report=(!isAdmin()&&m.username!==session)?`<button class="cm-del" style="color:#888;border-color:#444" onclick="reportMsg('${id}','${sanitize(m.username)}')">report</button>`:'';
+  return`<div class="chat-msg${isMention?' is-mention':''}"><${u.avatarB64?'':''} ${av}<div style="flex:1"><div style="display:flex;align-items:baseline;gap:8px;margin-bottom:2px"><span class="cm-name${m.username===ADMIN_USER?' is-admin':''}" onclick="viewProfile('${sanitize(m.username)}')">${sanitize(m.username)}${m.username===ADMIN_USER?` ${icon('crown',11)}`:''}${del}</span><span class="cm-time">${m.timeStr||''}</span></div><div class="cm-text">${renderMentions(m.text||'')}</div></div></div>`;
+}
+function renderFoot(){
+  const el=document.getElementById('chatFoot');if(!el)return;
+  const adminRow=isAdmin()?`<div style="display:flex;gap:6px;margin-top:7px"><input class="input" id="sysInput" placeholder="System announcement..." style="flex:1"><button class="btn" onclick="sendSys()">${icon('announce',14)} Announce</button></div>`:'';
+  el.innerHTML=`<div class="chat-input-row"><input class="input" id="chatInput" placeholder="Say something..." onkeydown="if(event.key==='Enter')sendMsg()"><button class="btn btn-primary" onclick="sendMsg()">${icon('send',14)}</button></div>${adminRow}`;
+}
+window.reportMsg=async(msgId,username)=>{
+  const reason=prompt('Why are you reporting this message?');
+  if(!reason||!reason.trim()) return;
+  await push(ref(db,'reports'),{msgId,username,reportedBy:session,reason:reason.trim(),ts:Date.now(),timeStr:ts(),type:'chat'});
+  alert('Report submitted.');
+};
+window.toggleUserList=function(){
+  var ul=document.getElementById('userlist');
+  if(ul) ul.classList.toggle('hidden');
+};
+window.sendMsg=async()=>{const i=document.getElementById('chatInput');const t=(i.value||'').trim();if(!t)return;await push(ref(db,'chat'),{type:'user',username:session,text:t.slice(0,500),ts:Date.now(),timeStr:ts()});i.value='';};
+window.sendSys=async()=>{const i=document.getElementById('sysInput');const t=(i.value||'').trim();if(!t)return;await push(ref(db,'chat'),{type:'system',text:`Announcement: ${t.slice(0,300)}`,ts:Date.now(),timeStr:ts()});i.value='';};
+window.delMsg=(id)=>remove(ref(db,`chat/${id}`));
+window.viewProfile=(u)=>{window.location.href=`profile.html?u=${encodeURIComponent(u)}`;};
+</script></body></html>

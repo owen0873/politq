@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PolitQ — Messages</title></head>
+<body><div id="app"></div>
+<script type="module">
+import { buildPage } from './layout.js';
+import { getSession,getDb,ref,push,onValue,remove,update,sanitize,renderMentions,icon,getDmKey,ts } from './shared.js';
+const session=getSession();
+if(!session){window.location.href='index.html';}
+buildPage('messages',`<div class="page-flex"><div class="dm-sidebar" id="dmSidebar"></div><div class="dm-main" id="dmMain"></div></div>`,`
+.dm-sidebar{width:220px;border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;background:var(--bg2)}
+.dm-hdr{padding:12px;font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:7px}
+.dm-list{flex:1;overflow-y:auto;padding:6px}
+.dm-item{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:6px;cursor:pointer;margin-bottom:2px}
+.dm-item:hover,.dm-item.active{background:var(--bg3)}
+.dm-av{width:36px;height:36px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;overflow:hidden}
+.dm-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.dm-item-preview{font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+.dm-unread{width:8px;height:8px;border-radius:50%;background:var(--red-hi);flex-shrink:0}
+.dm-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.dm-topbar{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
+.dm-msgs{flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:8px}
+.dm-msg{display:flex;gap:9px;align-items:flex-end}
+.dm-msg.me{flex-direction:row-reverse}
+.dm-bubble{font-size:13px;line-height:1.5;word-break:break-word;padding:9px 13px;border-radius:16px;width:auto;min-width:80px;max-width:260px;display:block;white-space:normal}
+.dm-msg.me .dm-bubble{background:#2a3a2a;color:#c8e6c9;border-bottom-right-radius:4px}
+.dm-msg:not(.me) .dm-bubble{background:var(--bg3);color:#ddd;border-bottom-left-radius:4px}
+.dm-time{font-size:10px;color:var(--text3);margin-top:3px}
+.dm-msg.me .dm-time{text-align:right}
+.dm-del{opacity:0;font-size:10px;padding:1px 5px;border-radius:3px;border:1px solid #5a2a2a;background:transparent;color:var(--red-hi);cursor:pointer;margin:0 4px;align-self:center}
+.dm-msg:hover .dm-del{opacity:1}
+.dm-foot{padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0}
+.dm-empty{display:flex;align-items:center;justify-content:center;flex:1;color:var(--text2);font-size:14px;flex-direction:column;gap:10px}
+`);
+const db=getDb();
+let users={},dms={},active=null;
+onValue(ref(db,'users'),snap=>{users=snap.val()||{};renderSidebar();});
+onValue(ref(db,'dms'),snap=>{dms=snap.val()||{};renderSidebar();if(active)renderConvo(active);});
+
+function renderSidebar(){
+  const el=document.getElementById('dmSidebar');if(!el)return;
+  const me=users[session]||{};
+  const friends=Object.keys(me.friends||{});
+  const items=friends.map(f=>{
+    const k=getDmKey(session,f);
+    const msgs=Object.values(dms[k]||{}).sort((a,b)=>(a.ts||0)-(b.ts||0));
+    const last=msgs[msgs.length-1];
+    const unread=msgs.filter(m=>m.from!==session&&!m.read).length;
+    const ud=users[f]||{};
+    const av=ud.avatarB64?`<div class="dm-av"><img src="${ud.avatarB64}"></div>`:`<div class="dm-av">${(f||'?').slice(0,2).toUpperCase()}</div>`;
+    return`<div class="dm-item${active===f?' active':''}" onclick="openConvo('${f}')">${av}<div style="flex:1;overflow:hidden"><div style="font-size:13px;font-weight:600">${sanitize(f)}</div><div class="dm-item-preview">${last?sanitize((last.text||'').slice(0,28)):''}</div></div>${unread>0?`<div class="dm-unread"></div>`:''}</div>`;
+  }).join('');
+  el.innerHTML=`<div class="dm-hdr">${icon('messages',14)} Messages</div><div class="dm-list">${items||`<div style="padding:12px;font-size:12px;color:var(--text2)">Add friends to message them</div>`}</div>`;
+}
+function renderConvo(f){
+  const el=document.getElementById('dmMain');if(!el)return;
+  const ud=users[f]||{};
+  const k=getDmKey(session,f);
+  const msgs=Object.entries(dms[k]||{}).sort((a,b)=>(a[1].ts||0)-(b[1].ts||0));
+  const av=ud.avatarB64?`<div class="dm-av" style="cursor:pointer" onclick="viewProfile('${f}')"><img src="${ud.avatarB64}"></div>`:`<div class="dm-av" style="cursor:pointer" onclick="viewProfile('${f}')">${(f||'?').slice(0,2).toUpperCase()}</div>`;
+  const msgsHtml=msgs.length===0?`<div style="text-align:center;color:var(--text2);padding:20px;font-size:13px">Start the conversation</div>`:msgs.map(([id,m])=>{
+    const fromMe=m.from===session;
+    const meUd=users[session]||{};
+    const mav=fromMe?(meUd.avatarB64?`<div class="dm-av"><img src="${meUd.avatarB64}"></div>`:`<div class="dm-av">${(session||'?').slice(0,2).toUpperCase()}</div>`):(ud.avatarB64?`<div class="dm-av"><img src="${ud.avatarB64}"></div>`:`<div class="dm-av">${(f||'?').slice(0,2).toUpperCase()}</div>`);
+    const del=(fromMe)?`<button class="dm-del" onclick="delDm('${k}','${id}')">✕</button>`:'';
+    return`<div class="dm-msg${fromMe?' me':''}">${!fromMe?mav:''}<div style="display:flex;flex-direction:column;${fromMe?'align-items:flex-end':''}max-width:72%;">${del}<div class="dm-bubble">${renderMentions(m.text||'')}</div><div class="dm-time">${m.timeStr||''}</div></div>${fromMe?mav:''}</div>`;
+  }).join('');
+  el.innerHTML=`<div class="dm-topbar">${av}<span style="font-size:14px;font-weight:600;cursor:pointer" onclick="viewProfile('${f}')">${sanitize(f)}</span></div><div class="dm-msgs" id="dmMsgs">${msgsHtml}</div><div class="dm-foot"><div style="display:flex;gap:8px"><input class="input" id="dmInput" placeholder="Message ${sanitize(f)}..." onkeydown="if(event.key==='Enter')sendDm()"><button class="btn btn-primary" onclick="sendDm()">${icon('send',14)}</button></div></div>`;
+  const dm=document.getElementById('dmMsgs');if(dm)dm.scrollTop=dm.scrollHeight;
+}
+window.openConvo=async(f)=>{
+  active=f;
+  const k=getDmKey(session,f);
+  const msgs=dms[k]||{};
+  const upd={};
+  Object.entries(msgs).forEach(([id,m])=>{if(m.from!==session&&!m.read)upd[`dms/${k}/${id}/read`]=true;});
+  if(Object.keys(upd).length)await update(ref(db),upd);
+  renderSidebar();renderConvo(f);
+};
+window.sendDm=async()=>{
+  const i=document.getElementById('dmInput');const t=(i.value||'').trim();if(!t||!active)return;
+  const k=getDmKey(session,active);
+  await push(ref(db,`dms/${k}`),{from:session,to:active,text:t.slice(0,1000),ts:Date.now(),timeStr:ts(),read:false});
+  i.value='';
+};
+window.delDm=(k,id)=>remove(ref(db,`dms/${k}/${id}`));
+window.viewProfile=(u)=>{window.location.href=`profile.html?u=${encodeURIComponent(u)}`;};
+</script></body></html>

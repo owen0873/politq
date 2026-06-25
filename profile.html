@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="theme.js"></script><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PolitQ — Profile</title></head>
+<body><div id="app"></div>
+<script type="module">
+import { buildPage } from './layout.js';
+import { getSession,getDb,ref,onValue,update,query,orderByChild,limitToLast,sanitize,tagHtml,icon,isAdmin,quadrant,quadColor,friendStatus,getDmKey,ts,push,remove,ADMIN_USER,ALL_TAGS } from './shared.js';
+const session=getSession();
+if(!session){window.location.href='index.html';}
+const params=new URLSearchParams(window.location.search);
+const targetUser=params.get('u')||session;
+buildPage('profile',`<div class="page-content" id="profileContent"><div class="empty-state">Loading...</div></div>`,`
+.profile-banner{width:100%;height:140px;background:linear-gradient(135deg,#111,#1e1e1e);border-radius:var(--radius);cursor:pointer;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);margin-bottom:0}
+.profile-banner img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.banner-overlay{position:absolute;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;opacity:0;transition:.2s;color:#fff;gap:6px;font-size:13px}
+.profile-banner:hover .banner-overlay{opacity:1}
+.profile-av{width:64px;height:64px;border-radius:50%;border:4px solid var(--bg);background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;overflow:hidden;flex-shrink:0}
+.profile-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.av-wrap{position:relative;cursor:pointer;flex-shrink:0}
+.av-ov{position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;opacity:0;transition:.2s}
+.av-wrap:hover .av-ov{opacity:1}
+.stat{text-align:center}.stat-n{font-size:18px;font-weight:700}.stat-l{font-size:11px;color:var(--text2)}
+.post-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px}
+.post-card.pinned{border-color:#4a3a10;background:#161208}
+`);
+const db=getDb();
+let users={}, posts={};
+onValue(ref(db,'users'),snap=>{users=snap.val()||{};renderProfile();});
+onValue(query(ref(db,'posts'),orderByChild('ts'),limitToLast(100)),snap=>{posts=snap.val()||{};renderProfile();});
+
+function renderProfile(){
+  const el=document.getElementById('profileContent');if(!el)return;
+  const u=users[targetUser];
+  if(!u){el.innerHTML=`<div class="empty-state">User not found.</div>`;return;}
+  const isMe=targetUser===session;
+  const tags=Object.keys(u.tags||{}).map(t=>tagHtml(t)).join('')||`<span style="color:var(--text2);font-size:12px">No tags set</span>`;
+  const q=quadrant(u.econ||0,u.soc||0);
+  const myPosts=Object.entries(posts).filter(([,p])=>p&&p.username===targetUser).sort((a,b)=>(b[1].ts||0)-(a[1].ts||0));
+  const bannerStyle=u.bannerB64?`background:url('${u.bannerB64}') center/cover`:'';
+  const avInner=u.avatarB64?`<img src="${u.avatarB64}">`:(targetUser||'?').slice(0,2).toUpperCase();
+  const fs=friendStatus(session,users,targetUser);
+  let actionBtns='';
+  if(isMe){
+    actionBtns=`<button class="btn" onclick="openEditModal()">${icon('edit',14)} Edit profile</button>`;
+  } else {
+    if(fs==='none') actionBtns+=`<button class="btn btn-blue" onclick="addFriend()">${icon('addfriend',14)} Add Friend</button>`;
+    else if(fs==='sent') actionBtns+=`<button class="btn" onclick="cancelReq()">Cancel Request</button>`;
+    else if(fs==='received') actionBtns+=`<button class="btn btn-green" onclick="acceptFriend()">${icon('accept',14)} Accept Request</button>`;
+    else if(fs==='friends') actionBtns+=`<button class="btn btn-green">${icon('accept',14)} Friends</button>`;
+    if(fs==='friends') actionBtns+=`<button class="btn" onclick="openDm()" style="border-color:#2a3a2a;color:#80c080;margin-left:8px">${icon('message',14)} Message</button>`;
+    if(isAdmin()&&targetUser!==ADMIN_USER) actionBtns+=`<button class="btn btn-red" onclick="banUser()" style="margin-left:8px">${icon('ban',14)} Ban</button>`;
+  }
+  // Mini compass
+  const SZ=260, H=SZ/2;
+  const dotX=((u.econ||0)+10)/20*SZ;
+  const dotY=(10-(u.soc||0))/20*SZ;
+  const miniCompass=`<div style="display:flex;flex-direction:column;align-items:center;gap:4px;margin-bottom:16px">
+    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.6px">Political Position</div>
+    <svg viewBox="0 0 ${SZ} ${SZ}" width="${SZ}" height="${SZ}" style="display:block;border:1px solid var(--border);border-radius:6px">
+      <rect x="0" y="0" width="${H}" height="${H}" fill="#e85555" opacity="0.7"/>
+      <rect x="${H}" y="0" width="${H}" height="${H}" fill="#5588e8" opacity="0.7"/>
+      <rect x="0" y="${H}" width="${H}" height="${H}" fill="#66cc66" opacity="0.7"/>
+      <rect x="${H}" y="${H}" width="${H}" height="${H}" fill="#aa66ee" opacity="0.7"/>
+      <line x1="${H}" y1="0" x2="${H}" y2="${SZ}" stroke="#333" stroke-width="1.5"/>
+      <line x1="0" y1="${H}" x2="${SZ}" y2="${H}" stroke="#333" stroke-width="1.5"/>
+      <text x="4" y="14" fill="#7a0018" font-size="10" font-weight="700" font-family="system-ui">Auth-Left</text>
+      <text x="${H+4}" y="14" fill="#002870" font-size="10" font-weight="700" font-family="system-ui">Auth-Right</text>
+      <text x="4" y="${SZ-4}" fill="#004018" font-size="10" font-weight="700" font-family="system-ui">Lib-Left</text>
+      <text x="${H+4}" y="${SZ-4}" fill="#3a0055" font-size="10" font-weight="700" font-family="system-ui">Lib-Right</text>
+      <circle cx="${dotX}" cy="${dotY}" r="9" fill="#fff" stroke="#111" stroke-width="2"/>
+      <circle cx="${dotX}" cy="${dotY}" r="15" fill="none" stroke="#fff" stroke-width="1" opacity="0.4"/>
+    </svg>
+    <div style="font-size:12px;color:var(--text2)">Econ: <b style="color:var(--text)">${(u.econ||0)>0?'+':''}${u.econ||0}</b> &nbsp; Social: <b style="color:var(--text)">${(u.soc||0)>0?'+':''}${u.soc||0}</b> &nbsp; <b style="color:${quadColor(q)}">${q}</b></div>
+  </div>`;
+  const postsHtml=myPosts.length===0?`<div class="empty-state">No posts yet.</div>`:myPosts.map(([id,p])=>`<div class="post-card${p.pinned?' pinned':''}"><div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px">${Object.keys(p.tags||{}).map(t=>tagHtml(t)).join('')}<span style="font-size:11px;padding:2px 7px;border-radius:4px;background:var(--bg3);color:var(--text2);border:1px solid var(--border)">${sanitize(p.topic||'')}</span></div><div style="font-size:14px;line-height:1.6;color:#ddd;white-space:pre-wrap;word-break:break-word">${sanitize(p.text||'')}</div><div style="font-size:13px;color:var(--text2);margin-top:8px">${icon('upvote',12)} ${Object.keys(p.upvoters||{}).length} &nbsp; ${p.timeStr||''}</div></div>`).join('');
+  el.innerHTML=`
+    ${isMe?`<input type="file" id="bannerInput" accept="image/*" onchange="uploadBanner(event)"><input type="file" id="avatarInput" accept="image/*" onchange="uploadAvatar(event)">`:''}
+    <div class="profile-banner" style="${bannerStyle}" ${isMe?`onclick="document.getElementById('bannerInput').click()"`:''}>
+      ${u.bannerB64?'':`<span style="color:var(--text3);font-size:13px">${isMe?'Click to upload banner':''}</span>`}
+      <div class="banner-overlay">${icon('camera',16)} Change banner</div>
+    </div>
+    <div style="display:flex;align-items:flex-end;gap:14px;margin-top:-24px;padding:0 14px;margin-bottom:12px">
+      <div class="${isMe?'av-wrap':''}" ${isMe?`onclick="document.getElementById('avatarInput').click()"`:''}>
+        <div class="profile-av">${avInner}</div>
+        ${isMe?`<div class="av-ov">${icon('camera',16)}</div>`:''}
+      </div>
+      <div style="flex:1;padding-bottom:4px">
+        <div style="font-size:17px;font-weight:700">${sanitize(targetUser)}${targetUser===ADMIN_USER?` ${icon('crown',15)}`:''}${u.banned?` <span style="color:var(--red-hi);font-size:12px">[BANNED]</span>`:''}</div>
+        <div style="font-size:13px;color:var(--text2);margin-top:3px;line-height:1.5">${sanitize(u.bio||'No bio.')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:8px">${tags}</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:20px;padding:12px 14px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:14px">
+      <div class="stat"><div class="stat-n">${myPosts.length}</div><div class="stat-l">Posts</div></div>
+      <div class="stat"><div class="stat-n">${myPosts.reduce((a,[,p])=>a+Object.keys(p.upvoters||{}).length,0)}</div><div class="stat-l">Upvotes</div></div>
+      <div class="stat"><div class="stat-n" style="color:${quadColor(q)}">${q}</div><div class="stat-l">Quadrant</div></div>
+      <div class="stat"><div class="stat-n">${Object.keys(u.friends||{}).length}</div><div class="stat-l">Friends</div></div>
+    </div>
+    <div style="padding:0 0 14px;display:flex;flex-wrap:wrap;gap:8px">${actionBtns}</div>
+    ${miniCompass}
+    <div class="section-title">Posts</div>
+    ${postsHtml}`;
+}
+
+window.uploadBanner=(e)=>{const f=e.target.files[0];if(!f)return;if(f.size>2*1024*1024){alert('Max 2MB');return;}const r=new FileReader();r.onload=async ev=>{await update(ref(db,`users/${session}`),{bannerB64:ev.target.result});const pill=document.getElementById('pillAv');if(pill)pill.innerHTML=`<img src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;};r.readAsDataURL(f);};
+window.uploadAvatar=(e)=>{const f=e.target.files[0];if(!f)return;if(f.size>1*1024*1024){alert('Max 1MB');return;}const r=new FileReader();r.onload=async ev=>{await update(ref(db,`users/${session}`),{avatarB64:ev.target.result});const pill=document.getElementById('pillAv');if(pill)pill.innerHTML=`<img src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;};r.readAsDataURL(f);};
+
+let editModal=null;
+window.openEditModal=()=>{
+  const u=users[session]||{};
+  const myTags=Object.keys(u.tags||{});
+  const modal=document.createElement('div');
+  modal.className='modal-overlay open';
+  modal.innerHTML=`<div class="modal"><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&#x2715;</button><div class="modal-inner"><h3>Edit Profile</h3><input class="input" id="editBio" value="${sanitize(u.bio||'')}"><div style="font-size:12px;color:var(--text2);margin:10px 0 6px">Political tags</div><div style="display:flex;flex-wrap:wrap;gap:4px;max-height:160px;overflow-y:auto" id="editTagsRow">${ALL_TAGS.map(t=>tagHtml(t,true,myTags.includes(t))).join('')}</div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn" onclick="this.closest('.modal-overlay').remove()">Cancel</button><button class="btn btn-primary" onclick="saveEdit()">Save</button></div></div></div>`;
+  document.body.appendChild(modal);
+  editModal=modal;
+  // wire up tag toggles
+  modal.querySelectorAll('.tag.clickable').forEach(el=>{
+    el.onclick=()=>{el.classList.toggle('sel');};
+  });
+};
+window.saveEdit=async()=>{
+  const bio=(document.getElementById('editBio').value||'').slice(0,200);
+  const selTags={};
+  document.querySelectorAll('#editTagsRow .tag.sel').forEach(el=>{selTags[el.textContent]=true;});
+  await update(ref(db,`users/${session}`),{bio,tags:selTags});
+  if(editModal)editModal.remove();
+};
+window.addFriend=async()=>{await update(ref(db,`users/${session}/sentRequests`),{[targetUser]:true});await update(ref(db,`users/${targetUser}/receivedRequests`),{[session]:true});};
+window.cancelReq=async()=>{await remove(ref(db,`users/${session}/sentRequests/${targetUser}`));await remove(ref(db,`users/${targetUser}/receivedRequests/${session}`));};
+window.acceptFriend=async()=>{await update(ref(db,`users/${session}/friends`),{[targetUser]:true});await update(ref(db,`users/${targetUser}/friends`),{[session]:true});await remove(ref(db,`users/${session}/receivedRequests/${targetUser}`));await remove(ref(db,`users/${targetUser}/sentRequests/${session}`));};
+window.openDm=()=>{window.location.href=`messages.html?dm=${encodeURIComponent(targetUser)}`;};
+window.banUser=async()=>{if(!isAdmin()||targetUser===ADMIN_USER)return;await update(ref(db,`users/${targetUser}`),{banned:true});await remove(ref(db,`online/${targetUser}`));await push(ref(db,'chat'),{type:'system',text:`${targetUser} has been banned by the admin.`,ts:Date.now(),timeStr:ts(),isBan:true});};
+</script></body></html>

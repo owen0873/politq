@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PolitQ — Compass</title>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+import { buildPage } from './layout.js';
+import { getSession, getDb, ref, onValue, update, sanitize, quadrant, quadColor } from './shared.js';
+
+const session = getSession();
+if(!session){ window.location.href='index.html'; }
+
+const extraCss = '.ctrl-slider{width:100%;accent-color:#666}.quad-box{padding:10px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);font-size:15px;font-weight:700;text-align:center}.legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);cursor:pointer;padding:3px 4px;border-radius:4px}.legend-item:hover{background:var(--bg3);color:var(--text)}';
+
+buildPage('compass', '<div class="page-content" id="compassPage" style="overflow-x:auto"></div>', extraCss);
+
+const db = getDb();
+let users = {};
+let dragging = false;
+
+onValue(ref(db, 'users'), function(snap) {
+  users = snap.val() || {};
+  renderCompass();
+});
+
+function econToX(econ, SZ) { return (econ + 10) / 20 * SZ; }
+function socToY(soc, SZ)   { return (10 - soc) / 20 * SZ; }
+
+function renderCompass() {
+  const el = document.getElementById('compassPage');
+  if(!el) return;
+
+  const u = users[session] || {};
+  const e = u.econ || 0;
+  const s = u.soc || 0;
+  const q = quadrant(e, s);
+  const SZ = 720;
+  const H = SZ / 2;
+  const CELL = 36;
+
+  // Build grid lines
+  let grid = '';
+  for(let i = 1; i < 20; i++){
+    const pos = i * CELL;
+    const isMain = pos === H;
+    const stroke = isMain ? '#333' : 'rgba(255,255,255,0.12)';
+    const w = isMain ? 2 : 0.7;
+    grid += '<line x1="' + pos + '" y1="0" x2="' + pos + '" y2="' + SZ + '" stroke="' + stroke + '" stroke-width="' + w + '"/>';
+    grid += '<line x1="0" y1="' + pos + '" x2="' + SZ + '" y2="' + pos + '" stroke="' + stroke + '" stroke-width="' + w + '"/>';
+  }
+
+  // Other user dots
+  let otherDots = '';
+  Object.entries(users).forEach(function(entry) {
+    const name = entry[0];
+    const ud = entry[1];
+    if(name === session) return;
+    if(ud.banned) return;
+    const cx = econToX(ud.econ || 0, SZ);
+    const cy = socToY(ud.soc || 0, SZ);
+    otherDots += '<g style="cursor:pointer" onclick="window.viewProfile(\'' + name + '\')">';
+    otherDots += '<circle cx="' + cx + '" cy="' + cy + '" r="7" fill="#fff" stroke="#333" stroke-width="1.5" opacity="0.85"/>';
+    otherDots += '<text x="' + (cx + 9) + '" y="' + (cy + 4) + '" font-size="9" fill="#fff" stroke="#222" stroke-width="2" paint-order="stroke" font-weight="600" font-family="system-ui">' + sanitize(name) + '</text>';
+    otherDots += '</g>';
+  });
+
+  // Legend
+  let legendHtml = '';
+  Object.entries(users).forEach(function(entry) {
+    const name = entry[0];
+    const ud = entry[1];
+    if(name === session || ud.banned) return;
+    legendHtml += '<div class="legend-item" onclick="window.viewProfile(\'' + name + '\')">';
+    legendHtml += '<div style="width:8px;height:8px;border-radius:50%;background:#fff;flex-shrink:0"></div>';
+    legendHtml += '<span>' + sanitize(name) + '</span>';
+    legendHtml += '</div>';
+  });
+
+  const dotX = econToX(e, SZ);
+  const dotY = socToY(s, SZ);
+  const qc = quadColor(q);
+
+  const econLabel = (e > 0 ? '+' : '') + e;
+  const socLabel  = (s > 0 ? '+' : '') + s;
+
+  el.innerHTML =
+    '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;flex-direction:column">'
+    + '<div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0">'
+    + '<div style="font-size:13px;color:#bbb;font-weight:700;letter-spacing:2px;text-transform:uppercase">Authoritarian</div>'
+    + '<div style="display:flex;align-items:center;gap:4px">'
+    + '<div style="font-size:11px;color:#bbb;font-weight:700;letter-spacing:1px;text-transform:uppercase;writing-mode:vertical-rl;transform:rotate(180deg)">Left</div>'
+    + '<svg id="compassSvg" viewBox="0 0 ' + SZ + ' ' + SZ + '" width="' + SZ + '" height="' + SZ + '" style="cursor:crosshair;display:block;border:2px solid #333;max-width:calc(100vw - 280px);max-height:85vh" xmlns="http://www.w3.org/2000/svg">'
+    + '<rect x="0" y="0" width="' + H + '" height="' + H + '" fill="#e85555" opacity="0.82"/>'
+    + '<rect x="' + H + '" y="0" width="' + H + '" height="' + H + '" fill="#5588e8" opacity="0.82"/>'
+    + '<rect x="0" y="' + H + '" width="' + H + '" height="' + H + '" fill="#66cc66" opacity="0.82"/>'
+    + '<rect x="' + H + '" y="' + H + '" width="' + H + '" height="' + H + '" fill="#aa66ee" opacity="0.82"/>'
+    + grid
+    + otherDots
+    + '<circle id="myDot" cx="' + dotX + '" cy="' + dotY + '" r="11" fill="#fff" stroke="#111" stroke-width="2.5" style="cursor:grab"/>'
+    + '<circle id="myRing" cx="' + dotX + '" cy="' + dotY + '" r="18" fill="none" stroke="#fff" stroke-width="1.5" opacity="0.4"/>'
+    + '<text id="myLabel" x="' + (dotX + 14) + '" y="' + (dotY + 5) + '" font-size="10" fill="#fff" stroke="#222" stroke-width="3" paint-order="stroke" font-weight="700" font-family="system-ui">' + sanitize(session) + '</text>'
+    + '</svg>'
+    + '<div style="font-size:11px;color:#bbb;font-weight:700;letter-spacing:1px;text-transform:uppercase;writing-mode:vertical-rl">Right</div>'
+    + '</div>'
+    + '<div style="font-size:13px;color:#bbb;font-weight:700;letter-spacing:2px;text-transform:uppercase">Libertarian</div>'
+    + '</div>'
+    + '<div style="min-width:200px;display:flex;flex-direction:column;gap:10px">'
+    + '<div><div style="font-size:13px;color:var(--text2);margin-bottom:4px">Economic: <strong id="econDisp">' + econLabel + '</strong></div>'
+    + '<input type="range" class="ctrl-slider" min="-10" max="10" value="' + e + '" id="econSlider" oninput="window.sliderChange()">'
+    + '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3)"><span>Left</span><span>Right</span></div></div>'
+    + '<div><div style="font-size:13px;color:var(--text2);margin-bottom:4px">Social: <strong id="socDisp">' + socLabel + '</strong></div>'
+    + '<input type="range" class="ctrl-slider" min="-10" max="10" value="' + s + '" id="socSlider" oninput="window.sliderChange()">'
+    + '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3)"><span>Libertarian</span><span>Authoritarian</span></div></div>'
+    + '<div class="quad-box" id="quadBox" style="color:' + qc + '">' + q + '</div>'
+    + '<div style="font-size:13px;color:var(--text2)">Econ: <b style="color:var(--text)">' + econLabel + '</b> &nbsp; Social: <b style="color:var(--text)">' + socLabel + '</b></div>'
+    + '<button class="btn btn-primary" onclick="window.savePos()">Save position</button>'
+    + '<div style="font-size:11px;color:var(--text3);margin-top:8px;text-transform:uppercase;letter-spacing:.5px">Other users</div>'
+    + '<div id="legend" style="display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto">' + legendHtml + '</div>'
+    + '</div>'
+    + '</div>';
+
+  setupDrag(SZ);
+}
+
+function applyPos(px, py, SZ) {
+  const svg = document.getElementById('compassSvg');
+  if(!svg) return;
+  const r = svg.getBoundingClientRect();
+  const sc = SZ / r.width;
+  const x = Math.min(Math.max((px - r.left) * sc, 0), SZ);
+  const y = Math.min(Math.max((py - r.top) * sc, 0), SZ);
+  const econ = Math.max(-10, Math.min(10, Math.round((x / SZ * 20 - 10) * 10) / 10));
+  const soc  = Math.max(-10, Math.min(10, Math.round((10 - y / SZ * 20) * 10) / 10));
+  const dot  = document.getElementById('myDot');
+  const ring = document.getElementById('myRing');
+  const lbl  = document.getElementById('myLabel');
+  if(dot){ dot.setAttribute('cx', x); dot.setAttribute('cy', y); }
+  if(ring){ ring.setAttribute('cx', x); ring.setAttribute('cy', y); }
+  if(lbl){ lbl.setAttribute('x', x + 14); lbl.setAttribute('y', y + 5); }
+  const es = document.getElementById('econSlider'); if(es) es.value = Math.round(econ);
+  const ss = document.getElementById('socSlider');  if(ss) ss.value = Math.round(soc);
+  const ed = document.getElementById('econDisp'); if(ed) ed.textContent = (Math.round(econ) > 0 ? '+' : '') + Math.round(econ);
+  const sd = document.getElementById('socDisp');  if(sd) sd.textContent = (Math.round(soc)  > 0 ? '+' : '') + Math.round(soc);
+  const q  = quadrant(Math.round(econ), Math.round(soc));
+  const qb = document.getElementById('quadBox');
+  if(qb){ qb.textContent = q; qb.style.color = quadColor(q); }
+}
+
+function setupDrag(SZ) {
+  const dot = document.getElementById('myDot');
+  const svg = document.getElementById('compassSvg');
+  if(!dot || !svg) return;
+  dot.addEventListener('mousedown', function(ev){ dragging = true; ev.preventDefault(); });
+  svg.addEventListener('mousemove', function(ev){ if(dragging) applyPos(ev.clientX, ev.clientY, SZ); });
+  document.addEventListener('mouseup', function(){ dragging = false; });
+  svg.addEventListener('click', function(ev){ if(!dragging) applyPos(ev.clientX, ev.clientY, SZ); });
+  dot.addEventListener('touchstart', function(ev){ dragging = true; ev.preventDefault(); }, { passive: false });
+  svg.addEventListener('touchmove', function(ev){ if(dragging){ ev.preventDefault(); applyPos(ev.touches[0].clientX, ev.touches[0].clientY, SZ); } }, { passive: false });
+  document.addEventListener('touchend', function(){ dragging = false; });
+}
+
+window.sliderChange = function() {
+  const e = parseInt(document.getElementById('econSlider').value);
+  const s = parseInt(document.getElementById('socSlider').value);
+  const ed = document.getElementById('econDisp'); if(ed) ed.textContent = (e > 0 ? '+' : '') + e;
+  const sd = document.getElementById('socDisp');  if(sd) sd.textContent = (s > 0 ? '+' : '') + s;
+  const q  = quadrant(e, s);
+  const qb = document.getElementById('quadBox'); if(qb){ qb.textContent = q; qb.style.color = quadColor(q); }
+  const SZ = 720;
+  const x = (e + 10) / 20 * SZ;
+  const y = (10 - s) / 20 * SZ;
+  const dot  = document.getElementById('myDot');
+  const ring = document.getElementById('myRing');
+  const lbl  = document.getElementById('myLabel');
+  if(dot){ dot.setAttribute('cx', x); dot.setAttribute('cy', y); }
+  if(ring){ ring.setAttribute('cx', x); ring.setAttribute('cy', y); }
+  if(lbl){ lbl.setAttribute('x', x + 14); lbl.setAttribute('y', y + 5); }
+};
+
+window.savePos = async function() {
+  const e = parseInt(document.getElementById('econSlider').value);
+  const s = parseInt(document.getElementById('socSlider').value);
+  await update(ref(db, 'users/' + session), { econ: e, soc: s });
+  alert('Position saved!');
+};
+
+window.viewProfile = function(u) {
+  window.location.href = 'profile.html?u=' + encodeURIComponent(u);
+};
+</script>
+</body>
+</html>

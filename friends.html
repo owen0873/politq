@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="theme.js"></script><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PolitQ — Friends</title></head>
+<body><div id="app"></div>
+<script type="module">
+import { buildPage } from './layout.js';
+import { getSession,getDb,ref,get,onValue,update,remove,sanitize,tagHtml,icon } from './shared.js';
+const session=getSession();
+if(!session){window.location.href='index.html';}
+buildPage('friends',`<div class="page-content"><div class="friends-search-row" style="display:flex;gap:8px;margin-bottom:16px"><input class="input" id="searchInput" placeholder="Search username..." onkeydown="if(event.key==='Enter')searchUser()"><button class="btn btn-primary" onclick="searchUser()">${icon('search',14)} Search</button></div><div id="searchResult"></div><div id="friendsContent"></div></div>`,`
+.friend-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.friend-av{width:40px;height:40px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;overflow:hidden;flex-shrink:0;cursor:pointer}
+.friend-av:hover{opacity:.8}
+.friend-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+`);
+const db=getDb();
+let users={};
+onValue(ref(db,'users'),snap=>{users=snap.val()||{};renderFriends();});
+
+function friendAv(name){
+  const ud=users[name]||{};
+  return ud.avatarB64?`<div class="friend-av" onclick="viewProfile('${name}')"><img src="${ud.avatarB64}"></div>`:`<div class="friend-av" onclick="viewProfile('${name}')">${(name||'?').slice(0,2).toUpperCase()}</div>`;
+}
+
+function renderFriends(){
+  const el=document.getElementById('friendsContent');if(!el)return;
+  const u=users[session]||{};
+  const received=Object.keys(u.receivedRequests||{});
+  const sent=Object.keys(u.sentRequests||{});
+  const friends=Object.keys(u.friends||{});
+  let html='';
+  if(received.length){
+    html+=`<div class="section-title" style="margin-top:8px">Incoming Requests — ${received.length}</div>`;
+    html+=received.map(name=>{
+      const ud=users[name]||{};
+      return`<div class="friend-card">${friendAv(name)}<div style="flex:1"><div style="font-size:14px;font-weight:600;cursor:pointer" onclick="viewProfile('${name}')">${sanitize(name)}</div><div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">${Object.keys(ud.tags||{}).map(t=>tagHtml(t)).join('')}</div></div><div style="display:flex;gap:6px"><button class="btn btn-green" onclick="acceptFriend('${name}')">${icon('accept',12)} Accept</button><button class="btn" onclick="declineFriend('${name}')">${icon('decline',12)} Decline</button></div></div>`;
+    }).join('');
+  }
+  if(sent.length){
+    html+=`<div class="section-title" style="margin-top:12px">Sent Requests</div>`;
+    html+=sent.map(name=>`<div class="friend-card">${friendAv(name)}<div style="flex:1"><div style="font-size:14px;font-weight:600;cursor:pointer" onclick="viewProfile('${name}')">${sanitize(name)}</div><div style="font-size:12px;color:var(--text2)">Pending</div></div><button class="btn" onclick="cancelReq('${name}')">${icon('decline',12)} Cancel</button></div>`).join('');
+  }
+  html+=`<div class="section-title" style="margin-top:12px">Friends — ${friends.length}</div>`;
+  if(!friends.length){html+=`<div class="empty-state">No friends yet. Add people from the feed or search above.</div>`;}
+  else html+=friends.map(name=>{
+    const ud=users[name]||{};
+    return`<div class="friend-card">${friendAv(name)}<div style="flex:1"><div style="font-size:14px;font-weight:600;cursor:pointer" onclick="viewProfile('${name}')">${sanitize(name)}</div><div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">${Object.keys(ud.tags||{}).map(t=>tagHtml(t)).join('')}</div></div><div style="display:flex;gap:6px"><button class="btn" style="border-color:#2a3a2a;color:#80c080" onclick="window.location.href='messages.html?dm=${encodeURIComponent(name)}'">${icon('message',12)} Message</button><button class="btn btn-red" onclick="removeFriend('${name}')">${icon('decline',12)} Remove</button></div></div>`;
+  }).join('');
+  el.innerHTML=html;
+}
+
+window.searchUser=async()=>{
+  const q=(document.getElementById('searchInput').value||'').trim();
+  const el=document.getElementById('searchResult');
+  if(!q){el.innerHTML='';return;}
+  const snap=await get(ref(db,`users/${q}`));
+  if(!snap.exists()){el.innerHTML=`<div class="card" style="color:var(--text2)">No user found: "${sanitize(q)}"</div>`;return;}
+  if(q===session){el.innerHTML=`<div class="card" style="color:var(--text2)">That's you.</div>`;return;}
+  const ud=snap.val();
+  const u=users[session]||{};
+  const friends=u.friends||{},sent=u.sentRequests||{},recv=u.receivedRequests||{};
+  let btn='';
+  if(friends[q])btn=`<span style="color:var(--green-hi);font-size:13px">${icon('accept',13)} Friends</span>`;
+  else if(sent[q])btn=`<button class="btn" onclick="cancelReq('${q}')">Cancel Request</button>`;
+  else if(recv[q])btn=`<button class="btn btn-green" onclick="acceptFriend('${q}')">${icon('accept',12)} Accept</button>`;
+  else btn=`<button class="btn btn-blue" onclick="addFriend('${q}')">${icon('addfriend',12)} Add Friend</button>`;
+  const av=ud.avatarB64?`<div class="friend-av" onclick="viewProfile('${q}')"><img src="${ud.avatarB64}"></div>`:`<div class="friend-av" onclick="viewProfile('${q}')">${(q||'?').slice(0,2).toUpperCase()}</div>`;
+  el.innerHTML=`<div class="friend-card" style="margin-bottom:16px">${av}<div style="flex:1"><div style="font-size:14px;font-weight:600;cursor:pointer" onclick="viewProfile('${q}')">${sanitize(q)}</div><div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">${Object.keys(ud.tags||{}).map(t=>tagHtml(t)).join('')}</div></div><div>${btn}</div></div>`;
+};
+window.addFriend=async(name)=>{await update(ref(db,`users/${session}/sentRequests`),{[name]:true});await update(ref(db,`users/${name}/receivedRequests`),{[session]:true});};
+window.acceptFriend=async(name)=>{await update(ref(db,`users/${session}/friends`),{[name]:true});await update(ref(db,`users/${name}/friends`),{[session]:true});await remove(ref(db,`users/${session}/receivedRequests/${name}`));await remove(ref(db,`users/${name}/sentRequests/${session}`));};
+window.declineFriend=async(name)=>{await remove(ref(db,`users/${session}/receivedRequests/${name}`));await remove(ref(db,`users/${name}/sentRequests/${session}`));};
+window.cancelReq=async(name)=>{await remove(ref(db,`users/${session}/sentRequests/${name}`));await remove(ref(db,`users/${name}/receivedRequests/${session}`));};
+window.removeFriend=async(name)=>{await remove(ref(db,`users/${session}/friends/${name}`));await remove(ref(db,`users/${name}/friends/${session}`));};
+window.viewProfile=(u)=>{window.location.href=`profile.html?u=${encodeURIComponent(u)}`;};
+</script></body></html>
