@@ -37,6 +37,12 @@ buildPage('feed',`<div class="page-content" id="feedContent">
 .filter-btn:hover{background:var(--bg3);color:var(--text)}
 .filter-btn.active{background:var(--text);color:var(--bg);border-color:var(--text)}
 .edit-box{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px}
+.thread-replies{margin-top:10px;padding-left:16px;border-left:2px solid var(--border)}
+.reply-card{background:var(--bg3);border-radius:var(--radius);padding:10px 12px;margin-bottom:6px}
+.reply-av{width:28px;height:28px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;overflow:hidden}
+.reply-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.reply-composer{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:8px;display:none}
+.reply-composer.open{display:block}
 `);
 
 const db=getDb();
@@ -67,15 +73,14 @@ function renderPosts(){
     if(a[1].pinned&&!b[1].pinned)return -1;
     return(b[1].ts||0)-(a[1].ts||0);
   });
-  let filtered=list;
   if(feedTab==='following'){
     const me=users[session]||{};
     const following=Object.keys(me.following||{});
-    filtered=list.filter(([,p])=>following.includes(p.username));
-    if(!filtered.length){el.innerHTML='<div class="empty-state">No posts from people you follow yet. Follow some users to see their posts here.</div>';return;}
+    const followFiltered=list.filter(([,p])=>following.includes(p.username));
+    if(!followFiltered.length){el.innerHTML='<div class="empty-state">No posts from people you follow yet. Follow some users to see their posts here.</div>';return;}
+    el.innerHTML=followFiltered.map(([id,p])=>postCard(id,p)).join('');return;
   }
-  if(!filtered.length){el.innerHTML=`<div class="empty-state">No posts yet. Be the first.</div>`;return;}
-  list=filtered;
+  if(!list.length){el.innerHTML=`<div class="empty-state">No posts yet. Be the first.</div>`;return;}
   el.innerHTML=list.map(([id,p])=>postCard(id,p)).join('');
 }
 
@@ -126,10 +131,28 @@ function postCard(id,p){
         <div class="post-actions">
           <button class="btn ${upvoted?'voted-up':''}" onclick="vote('${id}',1)">${icon('upvote',12)} ${Object.keys(p.upvoters||{}).length}</button>
           <button class="btn ${downvoted?'voted-down':''}" onclick="vote('${id}',-1)">${icon('downvote',12)} ${Object.keys(p.downvoters||{}).length}</button>
-          <button class="btn" onclick="reply('${sanitize(p.username)}')">${icon('reply',12)} Reply</button>
+          <button class="btn" onclick="openReplyComposer('${id}')">${icon('reply',12)} Reply ${Object.keys(p.replies||{}).length>0?'('+Object.keys(p.replies||{}).length+')':''}</button>
           <button class="btn" onclick="challenge('${sanitize(p.username)}')">${icon('send',12)} Challenge</button>
           ${friendBtn}${ownBtns}${adminBtns}${reportBtn}
         </div>
+        <div class="reply-composer" id="reply-composer-${id}">
+          <div style="display:flex;gap:8px">
+            <textarea class="input" id="reply-text-${id}" placeholder="Write a reply..." style="min-height:60px;flex:1"></textarea>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end">
+            <button class="btn" onclick="closeReplyComposer('${id}')">Cancel</button>
+            <button class="btn btn-primary" onclick="submitReply('${id}','${sanitize(p.username)}')">${icon('send',12)} Reply</button>
+          </div>
+        </div>
+        ${Object.keys(p.replies||{}).length>0?`<div class="thread-replies" id="replies-${id}">
+          ${Object.entries(p.replies||{}).sort((a,b)=>(a[1].ts||0)-(b[1].ts||0)).map(([rid,r])=>{
+            const ru=users[r.username]||{};
+            const rav=ru.avatarB64?`<div class="reply-av"><img src="${ru.avatarB64}"></div>`:`<div class="reply-av">${(r.username||'?').slice(0,2).toUpperCase()}</div>`;
+            const isOwnReply=r.username===session;
+            const delBtn=isOwnReply||isAdmin()?`<button style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px;padding:0 4px" onclick="deleteReply('${id}','${rid}')">✕</button>`:'';
+            return`<div class="reply-card"><div style="display:flex;gap:8px;align-items:flex-start">${rav}<div style="flex:1"><div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span style="font-size:12px;font-weight:600;cursor:pointer" onclick="viewProfile('${sanitize(r.username)}')">${sanitize(r.username)}</span><span style="font-size:11px;color:var(--text3)">${r.timeStr||''}</span>${delBtn}</div><div style="font-size:13px;color:#ccc;line-height:1.45;word-break:break-word">${renderMentions(r.text||'')}</div></div></div></div>`;
+          }).join('')}
+        </div>`:''}
       </div>
     </div>
   </div>`;
@@ -140,6 +163,24 @@ window.setFeedTab=function(tab){
   document.getElementById('tab-all').classList.toggle('active',tab==='all');
   document.getElementById('tab-following').classList.toggle('active',tab==='following');
   renderPosts();
+};
+window.openReplyComposer=(id)=>{
+  document.querySelectorAll('.reply-composer').forEach(el=>el.classList.remove('open'));
+  const c=document.getElementById('reply-composer-'+id);
+  if(c){c.classList.add('open');const t=document.getElementById('reply-text-'+id);if(t)t.focus();}
+};
+window.closeReplyComposer=(id)=>{
+  const c=document.getElementById('reply-composer-'+id);
+  if(c)c.classList.remove('open');
+};
+window.submitReply=async(postId,postAuthor)=>{
+  const t=(document.getElementById('reply-text-'+postId).value||'').trim();
+  if(!t)return;
+  await update(ref(db,'posts/'+postId+'/replies'),{[Date.now()+'_'+session]:{username:session,text:t.slice(0,500),ts:Date.now(),timeStr:ts()}});
+  closeReplyComposer(postId);
+};
+window.deleteReply=async(postId,replyId)=>{
+  await remove(ref(db,'posts/'+postId+'/replies/'+replyId));
 };
 window.submitPost=async()=>{
   const text=(document.getElementById('postText').value||'').trim();if(!text)return;
@@ -183,7 +224,7 @@ window.vote=async(id,dir)=>{
 
 window.deletePost=(id)=>remove(ref(db,`posts/${id}`));
 window.togglePin=async(id)=>{const p=posts[id];if(p)await update(ref(db,`posts/${id}`),{pinned:!p.pinned});};
-window.reply=(u)=>{const t=document.getElementById('postText');if(t){t.value=`@${u} `;t.focus();}};
+window.reply=(u)=>{const t=document.getElementById('postText');if(t){t.value='@'+u+' ';t.focus();}};
 window.challenge=(u)=>{const t=document.getElementById('postText');if(t){t.value=`@${u} I challenge your position: `;t.focus();}};
 window.viewProfile=(u)=>{window.location.href=`profile.html?u=${encodeURIComponent(u)}`;};
 window.followUser=async(target)=>{
