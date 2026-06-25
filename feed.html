@@ -9,13 +9,17 @@
 <body><div id="app"></div>
 <script type="module">
 import { buildPage } from './layout.js';
-import { getSession,getDb,ref,push,onValue,remove,update,set,query,orderByChild,limitToLast,sanitize,renderMentions,hasMention,tagHtml,icon,isAdmin,friendStatus,ts,ADMIN_USER,TOPICS } from './shared.js';
+import { getSession,getDb,ref,push,onValue,remove,update,set,query,orderByChild,limitToLast,sanitize,renderMentions,hasMention,tagHtml,icon,isAdmin,friendStatus,followStatus,ts,ADMIN_USER,TOPICS } from './shared.js';
 
 const session=getSession();
 if(!session){window.location.href='index.html';}
 
 buildPage('feed',`<div class="page-content" id="feedContent">
   <div id="composer"></div>
+  <div style="display:flex;gap:8px;margin-bottom:12px">
+    <button class="filter-btn active" id="tab-all" onclick="setFeedTab('all')">All Posts</button>
+    <button class="filter-btn" id="tab-following" onclick="setFeedTab('following')">Following</button>
+  </div>
   <div id="posts"></div>
 </div>`,`
 .post-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px;transition:.15s}
@@ -29,11 +33,14 @@ buildPage('feed',`<div class="page-content" id="feedContent">
 .voted-up{border-color:var(--green-hi)!important;color:var(--green-hi)!important}
 .voted-down{border-color:var(--red-hi)!important;color:var(--red-hi)!important}
 .composer{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:14px}
+.filter-btn{padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;font-size:13px;font-weight:600;transition:.12s}
+.filter-btn:hover{background:var(--bg3);color:var(--text)}
+.filter-btn.active{background:var(--text);color:var(--bg);border-color:var(--text)}
 .edit-box{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px}
 `);
 
 const db=getDb();
-let users={},posts={};
+let users={},posts={},feedTab="all";
 
 onValue(ref(db,'users'),snap=>{users=snap.val()||{};renderComposer();});
 onValue(query(ref(db,'posts'),orderByChild('ts'),limitToLast(100)),snap=>{
@@ -60,7 +67,15 @@ function renderPosts(){
     if(a[1].pinned&&!b[1].pinned)return -1;
     return(b[1].ts||0)-(a[1].ts||0);
   });
-  if(!list.length){el.innerHTML=`<div class="empty-state">No posts yet. Be the first.</div>`;return;}
+  let filtered=list;
+  if(feedTab==='following'){
+    const me=users[session]||{};
+    const following=Object.keys(me.following||{});
+    filtered=list.filter(([,p])=>following.includes(p.username));
+    if(!filtered.length){el.innerHTML='<div class="empty-state">No posts from people you follow yet. Follow some users to see their posts here.</div>';return;}
+  }
+  if(!filtered.length){el.innerHTML=`<div class="empty-state">No posts yet. Be the first.</div>`;return;}
+  list=filtered;
   el.innerHTML=list.map(([id,p])=>postCard(id,p)).join('');
 }
 
@@ -75,7 +90,10 @@ function postCard(id,p){
   const fs=friendStatus(session,users,p.username);
   let friendBtn='';
   if(p.username!==session){
-    if(fs==='none')friendBtn=`<button class="btn btn-blue" onclick="addFriend('${p.username}')">${icon('addfriend',12)} Add</button>`;
+    const fws=followStatus(session,users,p.username);
+    if(fws==='none') friendBtn+=`<button class="btn" onclick="followUser('${p.username}')" style="font-size:12px">+ Follow</button>`;
+    else if(fws==='following') friendBtn+=`<button class="btn" style="border-color:#3a5a3a;color:#80c080;font-size:12px" onclick="unfollowUser('${p.username}')">✓ Following</button>`;
+    if(fs==='none')friendBtn+=`<button class="btn btn-blue" onclick="addFriend('${p.username}')">${icon('addfriend',12)} Add</button>`;
     else if(fs==='sent')friendBtn=`<button class="btn" disabled style="color:var(--text3)">Pending</button>`;
     else if(fs==='received')friendBtn=`<button class="btn btn-green" onclick="acceptFriend('${p.username}')">${icon('accept',12)} Accept</button>`;
   }
@@ -117,6 +135,12 @@ function postCard(id,p){
   </div>`;
 }
 
+window.setFeedTab=function(tab){
+  feedTab=tab;
+  document.getElementById('tab-all').classList.toggle('active',tab==='all');
+  document.getElementById('tab-following').classList.toggle('active',tab==='following');
+  renderPosts();
+};
 window.submitPost=async()=>{
   const text=(document.getElementById('postText').value||'').trim();if(!text)return;
   const topic=document.getElementById('postTopic').value;
@@ -162,6 +186,14 @@ window.togglePin=async(id)=>{const p=posts[id];if(p)await update(ref(db,`posts/$
 window.reply=(u)=>{const t=document.getElementById('postText');if(t){t.value=`@${u} `;t.focus();}};
 window.challenge=(u)=>{const t=document.getElementById('postText');if(t){t.value=`@${u} I challenge your position: `;t.focus();}};
 window.viewProfile=(u)=>{window.location.href=`profile.html?u=${encodeURIComponent(u)}`;};
+window.followUser=async(target)=>{
+  await update(ref(db,'users/'+session+'/following'),{[target]:true});
+  await update(ref(db,'users/'+target+'/followers'),{[session]:true});
+};
+window.unfollowUser=async(target)=>{
+  await remove(ref(db,'users/'+session+'/following/'+target));
+  await remove(ref(db,'users/'+target+'/followers/'+session));
+};
 window.addFriend=async(target)=>{await update(ref(db,`users/${session}/sentRequests`),{[target]:true});await update(ref(db,`users/${target}/receivedRequests`),{[session]:true});};
 window.acceptFriend=async(from)=>{await update(ref(db,`users/${session}/friends`),{[from]:true});await update(ref(db,`users/${from}/friends`),{[session]:true});await remove(ref(db,`users/${session}/receivedRequests/${from}`));await remove(ref(db,`users/${from}/sentRequests/${session}`));};
 window.banUser=async(username)=>{if(!isAdmin()||username===ADMIN_USER)return;await update(ref(db,`users/${username}`),{banned:true});await remove(ref(db,`online/${username}`));await push(ref(db,'chat'),{type:'system',text:`${username} has been banned.`,ts:Date.now(),timeStr:ts(),isBan:true});};

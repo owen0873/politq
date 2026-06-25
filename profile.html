@@ -6,7 +6,7 @@
 <body><div id="app"></div>
 <script type="module">
 import { buildPage } from './layout.js';
-import { getSession,getDb,ref,onValue,update,query,orderByChild,limitToLast,sanitize,tagHtml,icon,isAdmin,quadrant,quadColor,friendStatus,getDmKey,ts,push,remove,ADMIN_USER,ALL_TAGS } from './shared.js';
+import { getSession,getDb,ref,onValue,update,query,orderByChild,limitToLast,sanitize,tagHtml,icon,isAdmin,quadrant,quadColor,friendStatus,followStatus,getDmKey,ts,push,remove,ADMIN_USER,ALL_TAGS } from './shared.js';
 const session=getSession();
 if(!session){window.location.href='index.html';}
 const params=new URLSearchParams(window.location.search);
@@ -49,6 +49,9 @@ function renderProfile(){
     else if(fs==='sent') actionBtns+=`<button class="btn" onclick="cancelReq()">Cancel Request</button>`;
     else if(fs==='received') actionBtns+=`<button class="btn btn-green" onclick="acceptFriend()">${icon('accept',14)} Accept Request</button>`;
     else if(fs==='friends') actionBtns+=`<button class="btn btn-green">${icon('accept',14)} Friends</button>`;
+    const fws=followStatus(session,users,targetUser);
+    if(fws==='following') actionBtns+=`<button class="btn" style="border-color:#3a5a3a;color:#80c080" onclick="unfollowUser()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Following</button>`;
+    else if(fws==='none'&&targetUser!==session) actionBtns+=`<button class="btn" onclick="followUser()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Follow</button>`;
     if(fs==='friends') actionBtns+=`<button class="btn" onclick="openDm()" style="border-color:#2a3a2a;color:#80c080;margin-left:8px">${icon('message',14)} Message</button>`;
     if(isAdmin()&&targetUser!==ADMIN_USER) actionBtns+=`<button class="btn btn-red" onclick="banUser()" style="margin-left:8px">${icon('ban',14)} Ban</button>`;
   }
@@ -97,6 +100,8 @@ function renderProfile(){
       <div class="stat"><div class="stat-n">${myPosts.reduce((a,[,p])=>a+Object.keys(p.upvoters||{}).length,0)}</div><div class="stat-l">Upvotes</div></div>
       <div class="stat"><div class="stat-n" style="color:${quadColor(q)}">${q}</div><div class="stat-l">Quadrant</div></div>
       <div class="stat"><div class="stat-n">${Object.keys(u.friends||{}).length}</div><div class="stat-l">Friends</div></div>
+      <div class="stat"><div class="stat-n">${Object.keys(u.followers||{}).length}</div><div class="stat-l">Followers</div></div>
+      <div class="stat"><div class="stat-n">${Object.keys(u.following||{}).length}</div><div class="stat-l">Following</div></div>
     </div>
     <div style="padding:0 0 14px;display:flex;flex-wrap:wrap;gap:8px">${actionBtns}</div>
     ${miniCompass}
@@ -127,6 +132,14 @@ window.saveEdit=async()=>{
   document.querySelectorAll('#editTagsRow .tag.sel').forEach(el=>{selTags[el.textContent]=true;});
   await update(ref(db,`users/${session}`),{bio,tags:selTags});
   if(editModal)editModal.remove();
+};
+window.followUser=async()=>{
+  await update(ref(db,'users/'+session+'/following'),{[targetUser]:true});
+  await update(ref(db,'users/'+targetUser+'/followers'),{[session]:true});
+};
+window.unfollowUser=async()=>{
+  await remove(ref(db,'users/'+session+'/following/'+targetUser));
+  await remove(ref(db,'users/'+targetUser+'/followers/'+session));
 };
 window.addFriend=async()=>{await update(ref(db,`users/${session}/sentRequests`),{[targetUser]:true});await update(ref(db,`users/${targetUser}/receivedRequests`),{[session]:true});};
 window.cancelReq=async()=>{await remove(ref(db,`users/${session}/sentRequests/${targetUser}`));await remove(ref(db,`users/${targetUser}/receivedRequests/${session}`));};

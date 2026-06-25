@@ -207,3 +207,10 @@ export async function pushNotification(db, toUser, type, text, link){
   const {push: fbPush, ref: fbRef} = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
   await fbPush(fbRef(db,'notifications/'+toUser),{type,text,link:link||'feed.html',ts:Date.now(),timeStr:ts(),read:false});
 }
+
+export function followStatus(session, users, target){
+  if(!session||target===session) return 'self';
+  const me=users[session]||{};
+  if((me.following||{})[target]) return 'following';
+  return 'none';
+}
