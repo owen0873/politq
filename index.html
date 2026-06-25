@@ -4,7 +4,7 @@
 <script src="theme.js"></script>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PolitQ — Login</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/bcryptjs/2.4.3/bcrypt.min.js"></script>
+<script defer src="/_vercel/insights/script.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#0a0a0a;--bg2:#111;--bg3:#1a1a1a;--border:#2a2a2a;--text:#e8e8e8;--text2:#888;--red-hi:#ef5350}
@@ -30,7 +30,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe 
 .tag-libleft{background:#0f2a10;color:#70c070;border-color:#205a20}
 .tag-libright{background:#2a2000;color:#c8a820;border-color:#5a4800}
 </style>
-<script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
 <div class="box">
@@ -42,80 +41,95 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe 
   </div>
   <div id="err"></div>
   <div id="form"></div>
+  <a href="support.html" style="display:block;text-align:center;margin-top:16px;color:#888;font-size:13px;text-decoration:none">Need help? <span style="color:#7ab8f5">Contact Support</span></a>
 </div>
 <script type="module">
 import { getDb, ref, get, set, getSession, setSession, ADMIN_USER, ADMIN_PASS, ALL_TAGS, tagClass } from './shared.js';
 const db = getDb();
-if(getSession()) window.location.href='feed.html';
+if(getSession()) window.location.href = 'feed.html';
 
-let mode='login', regTags=[];
+let mode = 'login';
+let regTags = [];
 
 function tagHtml(tag, sel){
-  const k=tagClass(tag);
+  const k = tagClass(tag);
   return '<span class="tag tag-' + k + (sel?' sel':'') + '" onclick="toggleTag(\'' + tag.replace(/'/g,"&apos;") + '\')">' + tag + '</span>';
 }
+
 window.toggleTag = function(tag){
-  const i=regTags.indexOf(tag);
+  const i = regTags.indexOf(tag);
   if(i===-1) regTags.push(tag); else regTags.splice(i,1);
-  document.getElementById('regTagsRow').innerHTML = ALL_TAGS.map(t=>tagHtml(t,regTags.includes(t))).join('');
+  const row = document.getElementById('regTagsRow');
+  if(row) row.innerHTML = ALL_TAGS.map(function(t){ return tagHtml(t, regTags.includes(t)); }).join('');
 };
+
 window.switchMode = function(m){
-  mode=m; regTags=[];
-  document.getElementById('tabLogin').classList.toggle('active',m==='login');
-  document.getElementById('tabSignup').classList.toggle('active',m==='signup');
+  mode = m; regTags = [];
+  document.getElementById('tabLogin').classList.toggle('active', m==='login');
+  document.getElementById('tabSignup').classList.toggle('active', m==='signup');
   renderForm();
 };
+
 function renderForm(){
-  document.getElementById('err').innerHTML='';
+  document.getElementById('err').innerHTML = '';
   const f = document.getElementById('form');
-  if(mode==='login'){
-    f.innerHTML = '<input class="inp" id="u" placeholder="Username"><input class="inp" id="p" type="password" placeholder="Password" onkeydown="if(event.key===\'Enter\')doLogin()"><button class="btn" id="lb" onclick="doLogin()">Log in</button>';
+  if(mode === 'login'){
+    f.innerHTML = '<input class="inp" id="u" placeholder="Username">'
+      + '<input class="inp" id="p" type="password" placeholder="Password" onkeydown="if(event.key===\'Enter\')doLogin()">'
+      + '<button class="btn" id="lb" onclick="doLogin()">Log in</button>';
   } else {
-    f.innerHTML = '<input class="inp" id="u" placeholder="Username (3-11 chars, letters & numbers only)"><input class="inp" id="p" type="password" placeholder="Password (min 4 chars)"><input class="inp" id="b" placeholder="Bio (optional)"><div class="tag-label">Your political leanings</div><div class="tag-row" id="regTagsRow">' + ALL_TAGS.map(t=>tagHtml(t,false)).join('') + '</div><button class="btn" id="sb" onclick="doSignup()">Create account</button>';
+    f.innerHTML = '<input class="inp" id="u" placeholder="Username (3-11 chars, letters & numbers only)">'
+      + '<input class="inp" id="p" type="password" placeholder="Password (min 4 chars)">'
+      + '<input class="inp" id="b" placeholder="Bio (optional)">'
+      + '<div class="tag-label">Your political leanings</div>'
+      + '<div class="tag-row" id="regTagsRow">' + ALL_TAGS.map(function(t){ return tagHtml(t,false); }).join('') + '</div>'
+      + '<button class="btn" id="sb" onclick="doSignup()">Create account</button>';
   }
 }
-function showErr(msg){ document.getElementById('err').innerHTML='<div class="err">'+msg+'</div>'; }
+
+function showErr(msg){ document.getElementById('err').innerHTML = '<div class="err">'+msg+'</div>'; }
 
 window.doLogin = async function(){
-  const u=(document.getElementById('u').value||'').trim();
-  const p=document.getElementById('p').value||'';
+  const u = (document.getElementById('u').value||'').trim();
+  const p = document.getElementById('p').value||'';
   if(!u||!p){showErr('Fill in both fields.');return;}
-  const btn=document.getElementById('lb');
+  const btn = document.getElementById('lb');
   if(btn){btn.disabled=true;btn.textContent='Logging in...';}
   if(u===ADMIN_USER&&p===ADMIN_PASS){
-    const snap=await get(ref(db,'users/'+ADMIN_USER));
+    const snap = await get(ref(db,'users/'+ADMIN_USER));
     if(!snap.exists()) await set(ref(db,'users/'+ADMIN_USER),{password:ADMIN_PASS,tags:{},bio:'Platform administrator',econ:0,soc:0,friends:{},sentRequests:{},receivedRequests:{}});
     await set(ref(db,'online/'+ADMIN_USER),true);
     setSession(ADMIN_USER); window.location.href='feed.html'; return;
   }
-  const snap=await get(ref(db,'users/'+u));
+  const snap = await get(ref(db,'users/'+u));
   if(!snap.exists()){showErr('No account with that username.');if(btn){btn.disabled=false;btn.textContent='Log in';}return;}
-  const d=snap.val();
-  const ok = await verifyPassword(p, d.password);
-  if(!ok){showErr('Wrong password.');if(btn){btn.disabled=false;btn.textContent='Log in';}return;}
+  const d = snap.val();
+  if(d.password!==p){showErr('Wrong password.');if(btn){btn.disabled=false;btn.textContent='Log in';}return;}
   if(d.banned){showErr('You are banned from PolitQ.');if(btn){btn.disabled=false;btn.textContent='Log in';}return;}
   await set(ref(db,'online/'+u),true);
   setSession(u); window.location.href='feed.html';
 };
 
 window.doSignup = async function(){
-  const u=(document.getElementById('u').value||'').trim().replace(/[\u{1F600}-\u{1FFFF}]/gu,'').trim();
-  const p=document.getElementById('p').value||'';
-  const b=(document.getElementById('b').value||'').slice(0,200);
+  const u = (document.getElementById('u').value||'').trim().replace(/[\u{1F600}-\u{1FFFF}]/gu,'').trim();
+  const p = document.getElementById('p').value||'';
+  const b = (document.getElementById('b').value||'').slice(0,200);
   if(!u||!p){showErr('Username and password required.');return;}
   if(u.length<3||u.length>11){showErr('Username must be 3-11 characters.');return;}
   if(!/^[a-zA-Z0-9_]+$/.test(u)){showErr('Username: letters, numbers, underscores only.');return;}
   if(p.length<4){showErr('Password must be at least 4 characters.');return;}
-  const btn=document.getElementById('sb');
+  const btn = document.getElementById('sb');
   if(btn){btn.disabled=true;btn.textContent='Creating...';}
-  const snap=await get(ref(db,'users/'+u));
+  const snap = await get(ref(db,'users/'+u));
   if(snap.exists()){showErr('Username taken.');if(btn){btn.disabled=false;btn.textContent='Create account';}return;}
-  const hashed = await hashPassword(p);
-  const tagMap={};regTags.forEach(t=>tagMap[t]=true);
-  await set(ref(db,'users/'+u),{password:hashed,tags:tagMap,bio:b,econ:0,soc:0,friends:{},sentRequests:{},receivedRequests:{}});
+  const tagMap = {};
+  regTags.forEach(function(t){ tagMap[t]=true; });
+  await set(ref(db,'users/'+u),{password:p,tags:tagMap,bio:b,econ:0,soc:0,friends:{},sentRequests:{},receivedRequests:{}});
   await set(ref(db,'online/'+u),true);
-  setSession(u); window.location.href='onboarding.html';
+  setSession(u);
+  window.location.href='onboarding.html';
 };
+
 renderForm();
 </script>
 </body>
