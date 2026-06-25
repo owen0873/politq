@@ -44,7 +44,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe 
   <div id="form"></div>
 </div>
 <script type="module">
-import { getDb, ref, get, set, update, getSession, setSession, ADMIN_USER, ADMIN_PASS, ALL_TAGS, tagClass, hashPassword, verifyPassword } from './shared.js';
+import { getDb, ref, get, set, getSession, setSession, ADMIN_USER, ADMIN_PASS, ALL_TAGS, tagClass } from './shared.js';
 const db = getDb();
 if(getSession()) window.location.href='feed.html';
 
@@ -95,7 +95,7 @@ window.doLogin = async function(){
   if(!ok){showErr('Wrong password.');if(btn){btn.disabled=false;btn.textContent='Log in';}return;}
   if(d.banned){showErr('You are banned from PolitQ.');if(btn){btn.disabled=false;btn.textContent='Log in';}return;}
   await set(ref(db,'online/'+u),true);
-  setSession(u); window.location.href='onboarding.html';
+  setSession(u); window.location.href='feed.html';
 };
 
 window.doSignup = async function(){
