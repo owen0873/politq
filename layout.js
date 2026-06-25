@@ -19,6 +19,7 @@ export function buildPage(activeTab, mainHtml, extraCss) {
   document.head.appendChild(style);
 
   const tabs = [
+    {id:'search',    label:'Search',      ic:'search',   href:'search.html'},
     {id:'feed',      label:'Feed',        ic:'feed',     href:'feed.html'},
     {id:'chat',      label:'Global Chat', ic:'chat',     href:'chat.html'},
     {id:'messages',  label:'Messages',    ic:'messages', href:'messages.html'},

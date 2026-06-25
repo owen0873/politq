@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="theme.js"></script>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PolitQ — Search</title>
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body><div id="app"></div>
+<script type="module">
+import { buildPage } from './layout.js';
+import { getSession,getDb,ref,onValue,sanitize,tagHtml,icon,quadrant,quadColor,renderMentions,friendStatus,update,remove } from './shared.js';
+
+const session=getSession();
+if(!session){window.location.href='index.html';}
+
+buildPage('search',`<div class="page-content">
+  <div style="display:flex;gap:8px;margin-bottom:16px">
+    <input class="input" id="searchInput" placeholder="Search users, posts, ideologies..." oninput="doSearch()" autofocus>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:16px" id="filterRow">
+    <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">All</button>
+    <button class="filter-btn" data-filter="users" onclick="setFilter('users')">Users</button>
+    <button class="filter-btn" data-filter="posts" onclick="setFilter('posts')">Posts</button>
+  </div>
+  <div id="searchResults"><div class="empty-state">Start typing to search</div></div>
+</div>`,`
+.filter-btn{padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;font-size:13px;font-weight:600;transition:.12s}
+.filter-btn:hover{background:var(--bg3);color:var(--text)}
+.filter-btn.active{background:var(--text);color:var(--bg);border-color:var(--text)}
+.result-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:13px;margin-bottom:8px;cursor:pointer;transition:.12s}
+.result-card:hover{border-color:#444;background:var(--bg3)}
+.result-av{width:38px;height:38px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;overflow:hidden}
+.result-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.highlight{background:rgba(200,168,32,.25);border-radius:2px;color:#c8a820;font-weight:600}
+.section-label{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin:16px 0 8px}
+`);
+
+const db=getDb();
+let users={}, posts={}, filter='all';
+
+onValue(ref(db,'users'),snap=>{users=snap.val()||{};});
+onValue(ref(db,'posts'),snap=>{posts=snap.val()||{};});
+
+function setFilter(f){
+  filter=f;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active',b.dataset.filter===f));
+  doSearch();
+}
+window.setFilter=setFilter;
+
+function highlight(text, query){
+  if(!query) return sanitize(text);
+  const safe=sanitize(text);
+  const re=new RegExp('('+query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
+  return safe.replace(re,'<mark class="highlight">$1</mark>');
+}
+
+window.doSearch=function(){
+  const q=(document.getElementById('searchInput').value||'').trim().toLowerCase();
+  const el=document.getElementById('searchResults');
+  if(!q){el.innerHTML='<div class="empty-state">Start typing to search</div>';return;}
+
+  let html='';
+
+  // Search users
+  if(filter==='all'||filter==='users'){
+    const matchedUsers=Object.entries(users).filter(([name,u])=>{
+      if(u.banned) return false;
+      if(name.toLowerCase().includes(q)) return true;
+      if((u.bio||'').toLowerCase().includes(q)) return true;
+      if(Object.keys(u.tags||{}).some(t=>t.toLowerCase().includes(q))) return true;
+      return false;
+    });
+    if(matchedUsers.length){
+      html+=`<div class="section-label">${icon('profile',12)} Users — ${matchedUsers.length}</div>`;
+      html+=matchedUsers.slice(0,20).map(([name,u])=>{
+        const av=u.avatarB64?`<div class="result-av"><img src="${u.avatarB64}"></div>`:`<div class="result-av">${name.slice(0,2).toUpperCase()}</div>`;
+        const tags=Object.keys(u.tags||{}).slice(0,3).map(t=>tagHtml(t)).join('');
+        const q2=quadrant(u.econ||0,u.soc||0);
+        return`<div class="result-card" onclick="window.location.href='profile.html?u=${encodeURIComponent(name)}'">
+          <div style="display:flex;gap:10px;align-items:center">
+            ${av}
+            <div style="flex:1;min-width:0">
+              <div style="font-size:14px;font-weight:700">${highlight(name,q)}</div>
+              ${u.bio?`<div style="font-size:12px;color:var(--text2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${highlight(u.bio,q)}</div>`:''}
+              <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px">${tags}<span style="font-size:11px;color:${quadColor(q2)};font-weight:600">${q2}</span></div>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // Search posts
+  if(filter==='all'||filter==='posts'){
+    const matchedPosts=Object.entries(posts).filter(([,p])=>{
+      if(!p) return false;
+      if((p.text||'').toLowerCase().includes(q)) return true;
+      if((p.topic||'').toLowerCase().includes(q)) return true;
+      if((p.username||'').toLowerCase().includes(q)) return true;
+      if(Object.keys(p.tags||{}).some(t=>t.toLowerCase().includes(q))) return true;
+      return false;
+    }).sort((a,b)=>(b[1].ts||0)-(a[1].ts||0));
+
+    if(matchedPosts.length){
+      html+=`<div class="section-label">${icon('feed',12)} Posts — ${matchedPosts.length}</div>`;
+      html+=matchedPosts.slice(0,20).map(([id,p])=>{
+        const u=users[p.username]||{};
+        const av=u.avatarB64?`<div class="result-av" style="width:30px;height:30px;font-size:10px"><img src="${u.avatarB64}"></div>`:`<div class="result-av" style="width:30px;height:30px;font-size:10px">${(p.username||'?').slice(0,2).toUpperCase()}</div>`;
+        const tags=Object.keys(p.tags||{}).slice(0,2).map(t=>tagHtml(t)).join('');
+        const preview=(p.text||'').slice(0,120)+(p.text&&p.text.length>120?'...':'');
+        return`<div class="result-card" onclick="window.location.href='feed.html#post-${id}'">
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            ${av}
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+                <span style="font-size:13px;font-weight:600">${sanitize(p.username||'')}</span>
+                ${tags}
+                <span style="font-size:11px;padding:1px 6px;border-radius:4px;background:var(--bg3);color:var(--text2);border:1px solid var(--border)">${sanitize(p.topic||'')}</span>
+                <span style="font-size:11px;color:var(--text3);margin-left:auto">${p.timeStr||''}</span>
+              </div>
+              <div style="font-size:13px;color:#ccc;line-height:1.5">${highlight(preview,q)}</div>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  if(!html){
+    html=`<div class="empty-state">No results for "${sanitize(q)}"</div>`;
+  }
+
+  el.innerHTML=html;
+};
+</script>
+</body>
+</html>
