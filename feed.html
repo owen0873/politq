@@ -11,18 +11,18 @@
 import { buildPage } from './layout.js';
 import { getSession,getDb,ref,push,onValue,remove,update,set,query,orderByChild,limitToLast,sanitize,renderMentions,hasMention,tagHtml,icon,isAdmin,friendStatus,followStatus,ts,ADMIN_USER,TOPICS } from './shared.js';
 
-const session=getSession();
-if(!session){window.location.href='index.html';}
+const session = getSession();
+if(!session){ window.location.href='index.html'; }
 
-buildPage('feed',`<div class="page-content" id="feedContent">
+buildPage('feed', `<div class="page-content" id="feedContent">
   <div id="composer"></div>
   <div style="display:flex;gap:8px;margin-bottom:12px">
     <button class="filter-btn active" id="tab-all" onclick="setFeedTab('all')">All Posts</button>
     <button class="filter-btn" id="tab-following" onclick="setFeedTab('following')">Following</button>
   </div>
   <div id="posts"></div>
-</div>`,`
-.post-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px;transition:.15s}
+</div>`, `
+.post-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px}
 .post-card.pinned{border-color:#4a3a10;background:#161208}
 .pin-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#c0a060;background:#2a1e04;border:1px solid #4a3a10;border-radius:4px;padding:2px 7px;margin-bottom:8px}
 .post-av{width:38px;height:38px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;overflow:hidden;cursor:pointer}
@@ -33,211 +33,217 @@ buildPage('feed',`<div class="page-content" id="feedContent">
 .voted-up{border-color:var(--green-hi)!important;color:var(--green-hi)!important}
 .voted-down{border-color:var(--red-hi)!important;color:var(--red-hi)!important}
 .composer{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:14px}
+.edit-box{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px}
 .filter-btn{padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;font-size:13px;font-weight:600;transition:.12s}
 .filter-btn:hover{background:var(--bg3);color:var(--text)}
 .filter-btn.active{background:var(--text);color:var(--bg);border-color:var(--text)}
-.edit-box{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px}
 .thread-replies{margin-top:10px;padding-left:16px;border-left:2px solid var(--border)}
 .reply-card{background:var(--bg3);border-radius:var(--radius);padding:10px 12px;margin-bottom:6px}
-.reply-av{width:28px;height:28px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;overflow:hidden}
+.reply-av{width:28px;height:28px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;overflow:hidden}
 .reply-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
 .reply-composer{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:8px;display:none}
 .reply-composer.open{display:block}
 `);
 
-const db=getDb();
-let users={},posts={},feedTab="all";
+const db = getDb();
+let users = {}, posts = {}, feedTab = 'all';
 
-onValue(ref(db,'users'),snap=>{users=snap.val()||{};renderComposer();});
-onValue(query(ref(db,'posts'),orderByChild('ts'),limitToLast(100)),snap=>{
-  posts=snap.val()||{};
+onValue(ref(db,'users'), snap=>{ users=snap.val()||{}; renderComposer(); });
+onValue(query(ref(db,'posts'),orderByChild('ts'),limitToLast(100)), snap=>{
+  posts = snap.val()||{};
   renderPosts();
 });
 
 function renderComposer(){
-  const u=users[session]||{};
-  const av=u.avatarB64?`<div class="post-av"><img src="${u.avatarB64}"></div>`:`<div class="post-av">${(session||'?').slice(0,2).toUpperCase()}</div>`;
-  document.getElementById('composer').innerHTML=`<div class="composer">
-    <div style="display:flex;gap:10px;margin-bottom:10px">${av}<textarea class="input" id="postText" placeholder="Make your case... use @username to mention someone"></textarea></div>
+  const u = users[session]||{};
+  const av = u.avatarB64
+    ? `<div class="post-av"><img src="${u.avatarB64}"></div>`
+    : `<div class="post-av">${(session||'?').slice(0,2).toUpperCase()}</div>`;
+  document.getElementById('composer').innerHTML = `<div class="composer">
+    <div style="display:flex;gap:10px;margin-bottom:10px">${av}
+      <textarea class="input" id="postText" placeholder="Make your case... use @username to mention someone"></textarea>
+    </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-      <select class="input" id="postTopic" style="width:auto;padding:7px 10px">${TOPICS.map(t=>`<option>${t}</option>`).join('')}</select>
+      <select class="input" id="postTopic" style="width:auto;padding:7px 10px">
+        ${TOPICS.map(t=>`<option>${t}</option>`).join('')}
+      </select>
       <button class="btn btn-primary" onclick="submitPost()">${icon('send',14)} Post</button>
     </div>
   </div>`;
 }
 
 function renderPosts(){
-  const el=document.getElementById('posts');if(!el)return;
-  const list=Object.entries(posts).sort((a,b)=>{
-    if(b[1].pinned&&!a[1].pinned)return 1;
-    if(a[1].pinned&&!b[1].pinned)return -1;
-    return(b[1].ts||0)-(a[1].ts||0);
+  const el = document.getElementById('posts');
+  if(!el) return;
+
+  let list = Object.entries(posts).filter(([,p])=>p).sort((a,b)=>{
+    if(b[1].pinned&&!a[1].pinned) return 1;
+    if(a[1].pinned&&!b[1].pinned) return -1;
+    return (b[1].ts||0)-(a[1].ts||0);
   });
+
   if(feedTab==='following'){
-    const me=users[session]||{};
-    const following=Object.keys(me.following||{});
-    const followFiltered=list.filter(([,p])=>following.includes(p.username));
-    if(!followFiltered.length){el.innerHTML='<div class="empty-state">No posts from people you follow yet. Follow some users to see their posts here.</div>';return;}
-    el.innerHTML=followFiltered.map(([id,p])=>postCard(id,p)).join('');return;
+    const me = users[session]||{};
+    const following = Object.keys(me.following||{});
+    const filtered = list.filter(([,p])=>following.includes(p.username));
+    if(!filtered.length){
+      el.innerHTML='<div class="empty-state">No posts from people you follow yet.</div>';
+      return;
+    }
+    el.innerHTML = filtered.map(([id,p])=>postCard(id,p)).join('');
+    return;
   }
-  if(!list.length){el.innerHTML=`<div class="empty-state">No posts yet. Be the first.</div>`;return;}
-  el.innerHTML=list.map(([id,p])=>postCard(id,p)).join('');
+
+  if(!list.length){ el.innerHTML='<div class="empty-state">No posts yet. Be the first.</div>'; return; }
+  el.innerHTML = list.map(([id,p])=>postCard(id,p)).join('');
 }
 
-function postCard(id,p){
-  if(!p)return'';
-  const u=users[p.username]||{};
-  const upvoted=(p.upvoters||{})[session];
-  const downvoted=(p.downvoters||{})[session];
-  const tags=Object.keys(p.tags||{}).map(t=>tagHtml(t)).join('');
-  const isMentioned=hasMention(p.text||'',session);
-  const avEl=u.avatarB64?`<div class="post-av" onclick="viewProfile('${p.username}')"><img src="${u.avatarB64}"></div>`:`<div class="post-av" onclick="viewProfile('${p.username}')">${(p.username||'?').slice(0,2).toUpperCase()}</div>`;
-  const fs=friendStatus(session,users,p.username);
-  let friendBtn='';
+function postCard(id, p){
+  if(!p) return '';
+  const u = users[p.username]||{};
+  const upvoted = (p.upvoters||{})[session];
+  const downvoted = (p.downvoters||{})[session];
+  const tags = Object.keys(p.tags||{}).map(t=>tagHtml(t)).join('');
+  const isMentioned = hasMention(p.text||'', session);
+  const av = u.avatarB64
+    ? `<div class="post-av" onclick="viewProfile('${p.username}')"><img src="${u.avatarB64}"></div>`
+    : `<div class="post-av" onclick="viewProfile('${p.username}')">${(p.username||'?').slice(0,2).toUpperCase()}</div>`;
+
+  const fs = friendStatus(session, users, p.username);
+  const fws = followStatus(session, users, p.username);
+  let friendBtn = '';
   if(p.username!==session){
-    const fws=followStatus(session,users,p.username);
-    if(fws==='none') friendBtn+=`<button class="btn" onclick="followUser('${p.username}')" style="font-size:12px">+ Follow</button>`;
-    else if(fws==='following') friendBtn+=`<button class="btn" style="border-color:#3a5a3a;color:#80c080;font-size:12px" onclick="unfollowUser('${p.username}')">✓ Following</button>`;
-    if(fs==='none')friendBtn+=`<button class="btn btn-blue" onclick="addFriend('${p.username}')">${icon('addfriend',12)} Add</button>`;
-    else if(fs==='sent')friendBtn=`<button class="btn" disabled style="color:var(--text3)">Pending</button>`;
-    else if(fs==='received')friendBtn=`<button class="btn btn-green" onclick="acceptFriend('${p.username}')">${icon('accept',12)} Accept</button>`;
+    if(fws==='none') friendBtn+=`<button class="btn" style="font-size:12px" onclick="followUser('${p.username}')">+ Follow</button>`;
+    else friendBtn+=`<button class="btn" style="border-color:#3a5a3a;color:#80c080;font-size:12px" onclick="unfollowUser('${p.username}')">✓ Following</button>`;
+    if(fs==='none') friendBtn+=`<button class="btn btn-blue" onclick="addFriend('${p.username}')">${icon('addfriend',12)} Add</button>`;
+    else if(fs==='sent') friendBtn+=`<button class="btn" disabled style="color:var(--text3)">Pending</button>`;
+    else if(fs==='received') friendBtn+=`<button class="btn btn-green" onclick="acceptFriend('${p.username}')">${icon('accept',12)} Accept</button>`;
   }
-  // Own post controls
-  const isOwn=p.username===session;
-  let ownBtns='';
-  if(isOwn){
-    ownBtns=`<button class="btn" onclick="editPost('${id}')">${icon('edit',12)} Edit</button><button class="btn btn-red" onclick="deletePost('${id}')">${icon('delete',12)} Delete</button>`;
-  }
-  let adminBtns='';
+
+  const isOwn = p.username===session;
+  let ownBtns = '';
+  if(isOwn) ownBtns=`<button class="btn" onclick="editPost('${id}')">${icon('edit',12)} Edit</button><button class="btn btn-red" onclick="deletePost('${id}')">${icon('delete',12)} Delete</button>`;
+
+  let adminBtns = '';
   if(isAdmin()){
     adminBtns+=`<button class="btn btn-amber" onclick="togglePin('${id}')">${icon('pin',12)} ${p.pinned?'Unpin':'Pin'}</button>`;
-    if(p.username!==ADMIN_USER&&!isOwn) adminBtns+=`<button class="btn btn-red" onclick="deletePost('${id}')">${icon('delete',12)}</button><button class="btn btn-amber" onclick="banUser('${p.username}')">${icon('ban',12)}</button>`;
+    if(p.username!==ADMIN_USER&&!isOwn) adminBtns+=`<button class="btn btn-red" onclick="deletePost('${id}')">${icon('delete',12)}</button>`;
   }
-  let reportBtn='';
+
+  let reportBtn = '';
   if(!isAdmin()&&!isOwn) reportBtn=`<button class="btn" style="color:var(--text3)" onclick="reportPost('${id}','${sanitize(p.username)}')">${icon('ban',12)} Report</button>`;
 
-  return`<div class="post-card${isMentioned?' mention-highlight':''}${p.pinned?' pinned':''}" id="post-${id}">
+  const replyList = Object.entries(p.replies||{}).sort((a,b)=>(a[1].ts||0)-(b[1].ts||0));
+  const replyCount = replyList.length;
+
+  const repliesHtml = replyCount>0 ? `<div class="thread-replies">${replyList.map(([rid,r])=>{
+    const ru = users[r.username]||{};
+    const rav = ru.avatarB64
+      ? `<div class="reply-av"><img src="${ru.avatarB64}"></div>`
+      : `<div class="reply-av">${(r.username||'?').slice(0,2).toUpperCase()}</div>`;
+    const canDel = r.username===session||isAdmin();
+    const delBtn = canDel ? `<button style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px" onclick="deleteReply('${id}','${rid}')">✕</button>` : '';
+    return `<div class="reply-card"><div style="display:flex;gap:8px"><div>${rav}</div><div style="flex:1"><div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span style="font-size:12px;font-weight:600;cursor:pointer" onclick="viewProfile('${sanitize(r.username)}')">${sanitize(r.username)}</span><span style="font-size:11px;color:var(--text3)">${r.timeStr||''}</span>${delBtn}</div><div style="font-size:13px;color:#ccc;line-height:1.45;word-break:break-word">${renderMentions(r.text||'')}</div></div></div></div>`;
+  }).join('')}</div>` : '';
+
+  return `<div class="post-card${isMentioned?' mention-highlight':''}${p.pinned?' pinned':''}" id="post-${id}">
     ${p.pinned?`<div class="pin-badge">${icon('pin',11)} Pinned</div>`:''}
     <div style="display:flex;gap:10px;align-items:flex-start">
-      ${avEl}
+      ${av}
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-size:14px;font-weight:600;cursor:pointer" onclick="viewProfile('${sanitize(p.username)}')">${sanitize(p.username)}${p.username===ADMIN_USER?` ${icon('crown',13)}`:''}</span>
           <div style="display:flex;flex-wrap:wrap;gap:3px">${tags}<span class="topic-badge">${sanitize(p.topic||'')}</span></div>
           <span style="font-size:11px;color:var(--text3);margin-left:auto">${p.timeStr||''}</span>
         </div>
-        <div class="post-body" id="body-${id}">${renderMentions(p.text||'')}</div>
+        <div class="post-body" id="body-${id}">${renderMentions(p.text||'')}${p.edited?` <span style="font-size:11px;color:var(--text3)">(edited)</span>`:''}</div>
         <div id="edit-area-${id}"></div>
         <div class="post-actions">
           <button class="btn ${upvoted?'voted-up':''}" onclick="vote('${id}',1)">${icon('upvote',12)} ${Object.keys(p.upvoters||{}).length}</button>
           <button class="btn ${downvoted?'voted-down':''}" onclick="vote('${id}',-1)">${icon('downvote',12)} ${Object.keys(p.downvoters||{}).length}</button>
-          <button class="btn" onclick="openReplyComposer('${id}')">${icon('reply',12)} Reply ${Object.keys(p.replies||{}).length>0?'('+Object.keys(p.replies||{}).length+')':''}</button>
+          <button class="btn" onclick="openReplyComposer('${id}')">${icon('reply',12)} Reply${replyCount>0?` (${replyCount})`:''}</button>
           <button class="btn" onclick="challenge('${sanitize(p.username)}')">${icon('send',12)} Challenge</button>
           ${friendBtn}${ownBtns}${adminBtns}${reportBtn}
         </div>
         <div class="reply-composer" id="reply-composer-${id}">
-          <div style="display:flex;gap:8px">
-            <textarea class="input" id="reply-text-${id}" placeholder="Write a reply..." style="min-height:60px;flex:1"></textarea>
-          </div>
+          <textarea class="input" id="reply-text-${id}" placeholder="Write a reply..." style="min-height:60px"></textarea>
           <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end">
             <button class="btn" onclick="closeReplyComposer('${id}')">Cancel</button>
-            <button class="btn btn-primary" onclick="submitReply('${id}','${sanitize(p.username)}')">${icon('send',12)} Reply</button>
+            <button class="btn btn-primary" onclick="submitReply('${id}')">${icon('send',12)} Reply</button>
           </div>
         </div>
-        ${Object.keys(p.replies||{}).length>0?`<div class="thread-replies" id="replies-${id}">
-          ${Object.entries(p.replies||{}).sort((a,b)=>(a[1].ts||0)-(b[1].ts||0)).map(([rid,r])=>{
-            const ru=users[r.username]||{};
-            const rav=ru.avatarB64?`<div class="reply-av"><img src="${ru.avatarB64}"></div>`:`<div class="reply-av">${(r.username||'?').slice(0,2).toUpperCase()}</div>`;
-            const isOwnReply=r.username===session;
-            const delBtn=isOwnReply||isAdmin()?`<button style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px;padding:0 4px" onclick="deleteReply('${id}','${rid}')">✕</button>`:'';
-            return`<div class="reply-card"><div style="display:flex;gap:8px;align-items:flex-start">${rav}<div style="flex:1"><div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span style="font-size:12px;font-weight:600;cursor:pointer" onclick="viewProfile('${sanitize(r.username)}')">${sanitize(r.username)}</span><span style="font-size:11px;color:var(--text3)">${r.timeStr||''}</span>${delBtn}</div><div style="font-size:13px;color:#ccc;line-height:1.45;word-break:break-word">${renderMentions(r.text||'')}</div></div></div></div>`;
-          }).join('')}
-        </div>`:''}
+        ${repliesHtml}
       </div>
     </div>
   </div>`;
 }
 
-window.setFeedTab=function(tab){
-  feedTab=tab;
-  document.getElementById('tab-all').classList.toggle('active',tab==='all');
-  document.getElementById('tab-following').classList.toggle('active',tab==='following');
+window.setFeedTab = function(tab){
+  feedTab = tab;
+  document.getElementById('tab-all').classList.toggle('active', tab==='all');
+  document.getElementById('tab-following').classList.toggle('active', tab==='following');
   renderPosts();
 };
-window.openReplyComposer=(id)=>{
-  document.querySelectorAll('.reply-composer').forEach(el=>el.classList.remove('open'));
-  const c=document.getElementById('reply-composer-'+id);
-  if(c){c.classList.add('open');const t=document.getElementById('reply-text-'+id);if(t)t.focus();}
-};
-window.closeReplyComposer=(id)=>{
-  const c=document.getElementById('reply-composer-'+id);
-  if(c)c.classList.remove('open');
-};
-window.submitReply=async(postId,postAuthor)=>{
-  const t=(document.getElementById('reply-text-'+postId).value||'').trim();
-  if(!t)return;
-  await update(ref(db,'posts/'+postId+'/replies'),{[Date.now()+'_'+session]:{username:session,text:t.slice(0,500),ts:Date.now(),timeStr:ts()}});
-  closeReplyComposer(postId);
-};
-window.deleteReply=async(postId,replyId)=>{
-  await remove(ref(db,'posts/'+postId+'/replies/'+replyId));
-};
-window.submitPost=async()=>{
-  const text=(document.getElementById('postText').value||'').trim();if(!text)return;
-  const topic=document.getElementById('postTopic').value;
-  const u=users[session]||{};
+
+window.submitPost = async()=>{
+  const text = (document.getElementById('postText').value||'').trim();
+  if(!text) return;
+  const topic = document.getElementById('postTopic').value;
+  const u = users[session]||{};
   await push(ref(db,'posts'),{username:session,tags:u.tags||{},topic,text:text.slice(0,1000),upvoters:{},downvoters:{},ts:Date.now(),timeStr:ts()});
   document.getElementById('postText').value='';
 };
 
-window.editPost=(id)=>{
-  const p=posts[id];if(!p)return;
+window.openReplyComposer = id=>{
+  document.querySelectorAll('.reply-composer').forEach(el=>el.classList.remove('open'));
+  const c = document.getElementById('reply-composer-'+id);
+  if(c){ c.classList.add('open'); const t=document.getElementById('reply-text-'+id); if(t)t.focus(); }
+};
+window.closeReplyComposer = id=>{ const c=document.getElementById('reply-composer-'+id); if(c)c.classList.remove('open'); };
+window.submitReply = async(postId)=>{
+  const t = (document.getElementById('reply-text-'+postId).value||'').trim();
+  if(!t) return;
+  const key = Date.now()+'_'+session;
+  await update(ref(db,'posts/'+postId+'/replies'),{[key]:{username:session,text:t.slice(0,500),ts:Date.now(),timeStr:ts()}});
+  closeReplyComposer(postId);
+};
+window.deleteReply = async(postId,replyId)=>remove(ref(db,'posts/'+postId+'/replies/'+replyId));
+
+window.editPost = id=>{
+  const p=posts[id]; if(!p) return;
   const body=document.getElementById('body-'+id);
   const area=document.getElementById('edit-area-'+id);
-  if(!body||!area)return;
+  if(!body||!area) return;
   body.style.display='none';
   area.innerHTML=`<div class="edit-box"><textarea class="input" id="edit-text-${id}" style="min-height:80px">${p.text||''}</textarea><div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-primary" onclick="saveEdit('${id}')">Save</button><button class="btn" onclick="cancelEdit('${id}')">Cancel</button></div></div>`;
 };
-
-window.cancelEdit=(id)=>{
-  const body=document.getElementById('body-'+id);
-  const area=document.getElementById('edit-area-'+id);
-  if(body)body.style.display='';
-  if(area)area.innerHTML='';
+window.cancelEdit = id=>{
+  const body=document.getElementById('body-'+id); const area=document.getElementById('edit-area-'+id);
+  if(body)body.style.display=''; if(area)area.innerHTML='';
 };
-
-window.saveEdit=async(id)=>{
-  const t=(document.getElementById('edit-text-'+id).value||'').trim();
-  if(!t)return;
-  await update(ref(db,`posts/${id}`),{text:t.slice(0,1000),edited:true});
+window.saveEdit = async id=>{
+  const t=(document.getElementById('edit-text-'+id).value||'').trim(); if(!t)return;
+  await update(ref(db,'posts/'+id),{text:t.slice(0,1000),edited:true});
   cancelEdit(id);
 };
 
-window.vote=async(id,dir)=>{
-  const p=posts[id];if(!p)return;
-  const upRef=ref(db,`posts/${id}/upvoters/${session}`);
-  const downRef=ref(db,`posts/${id}/downvoters/${session}`);
-  const upvoted=(p.upvoters||{})[session],downvoted=(p.downvoters||{})[session];
-  if(dir===1){if(upvoted)await remove(upRef);else{await set(upRef,true);await remove(downRef);}}
-  else{if(downvoted)await remove(downRef);else{await set(downRef,true);await remove(upRef);}}
+window.vote = async(id,dir)=>{
+  const p=posts[id]; if(!p) return;
+  const upRef=ref(db,'posts/'+id+'/upvoters/'+session);
+  const downRef=ref(db,'posts/'+id+'/downvoters/'+session);
+  const upvoted=(p.upvoters||{})[session], downvoted=(p.downvoters||{})[session];
+  if(dir===1){ if(upvoted)await remove(upRef); else{await set(upRef,true);await remove(downRef);} }
+  else{ if(downvoted)await remove(downRef); else{await set(downRef,true);await remove(upRef);} }
 };
-
-window.deletePost=(id)=>remove(ref(db,`posts/${id}`));
-window.togglePin=async(id)=>{const p=posts[id];if(p)await update(ref(db,`posts/${id}`),{pinned:!p.pinned});};
-window.reply=(u)=>{const t=document.getElementById('postText');if(t){t.value='@'+u+' ';t.focus();}};
-window.challenge=(u)=>{const t=document.getElementById('postText');if(t){t.value=`@${u} I challenge your position: `;t.focus();}};
-window.viewProfile=(u)=>{window.location.href=`profile.html?u=${encodeURIComponent(u)}`;};
-window.followUser=async(target)=>{
-  await update(ref(db,'users/'+session+'/following'),{[target]:true});
-  await update(ref(db,'users/'+target+'/followers'),{[session]:true});
-};
-window.unfollowUser=async(target)=>{
-  await remove(ref(db,'users/'+session+'/following/'+target));
-  await remove(ref(db,'users/'+target+'/followers/'+session));
-};
-window.addFriend=async(target)=>{await update(ref(db,`users/${session}/sentRequests`),{[target]:true});await update(ref(db,`users/${target}/receivedRequests`),{[session]:true});};
-window.acceptFriend=async(from)=>{await update(ref(db,`users/${session}/friends`),{[from]:true});await update(ref(db,`users/${from}/friends`),{[session]:true});await remove(ref(db,`users/${session}/receivedRequests/${from}`));await remove(ref(db,`users/${from}/sentRequests/${session}`));};
-window.banUser=async(username)=>{if(!isAdmin()||username===ADMIN_USER)return;await update(ref(db,`users/${username}`),{banned:true});await remove(ref(db,`online/${username}`));await push(ref(db,'chat'),{type:'system',text:`${username} has been banned.`,ts:Date.now(),timeStr:ts(),isBan:true});};
-window.reportPost=async(postId,username)=>{const reason=prompt('Why are you reporting this post?');if(!reason||!reason.trim())return;await push(ref(db,'reports'),{postId,username,reportedBy:session,reason:reason.trim(),ts:Date.now(),timeStr:ts()});alert('Report submitted.');};
+window.deletePost = id=>remove(ref(db,'posts/'+id));
+window.togglePin = async id=>{const p=posts[id]; if(p)await update(ref(db,'posts/'+id),{pinned:!p.pinned});};
+window.challenge = u=>{const t=document.getElementById('postText'); if(t){t.value='@'+u+' I challenge your position: ';t.focus();}};
+window.viewProfile = u=>{ window.location.href='profile.html?u='+encodeURIComponent(u); };
+window.followUser = async target=>{await update(ref(db,'users/'+session+'/following'),{[target]:true});await update(ref(db,'users/'+target+'/followers'),{[session]:true});};
+window.unfollowUser = async target=>{await remove(ref(db,'users/'+session+'/following/'+target));await remove(ref(db,'users/'+target+'/followers/'+session));};
+window.addFriend = async target=>{await update(ref(db,'users/'+session+'/sentRequests'),{[target]:true});await update(ref(db,'users/'+target+'/receivedRequests'),{[session]:true});};
+window.acceptFriend = async from=>{await update(ref(db,'users/'+session+'/friends'),{[from]:true});await update(ref(db,'users/'+from+'/friends'),{[session]:true});await remove(ref(db,'users/'+session+'/receivedRequests/'+from));await remove(ref(db,'users/'+from+'/sentRequests/'+session));};
+window.banUser = async username=>{if(!isAdmin()||username===ADMIN_USER)return;await update(ref(db,'users/'+username),{banned:true});await remove(ref(db,'online/'+username));await push(ref(db,'chat'),{type:'system',text:username+' has been banned.',ts:Date.now(),timeStr:ts(),isBan:true});};
+window.reportPost = async(postId,username)=>{const reason=prompt('Why are you reporting this post?');if(!reason||!reason.trim())return;await push(ref(db,'reports'),{postId,username,reportedBy:session,reason:reason.trim(),ts:Date.now(),timeStr:ts()});alert('Report submitted.');};
 </script>
 </body></html>
