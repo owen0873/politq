@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getDatabase, ref, set, get, push, onValue, remove, update, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getDatabase, ref, set, get, push, onValue, remove, update, query, orderByChild, limitToLast, onDisconnect } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 export const firebaseConfig = {
   apiKey: "AIzaSyBcUstKvYcHgNgixhvXGAoxPZCDXCqYKM4",
@@ -181,7 +181,7 @@ export function getDb(){
   }
   return _db;
 }
-export { ref, set, get, push, onValue, remove, update, query, orderByChild, limitToLast };
+export { ref, set, get, push, onValue, remove, update, query, orderByChild, limitToLast, onDisconnect };
 
 // Password hashing — uses bcryptjs loaded via CDN in index.html
 export async function hashPassword(plain) {
@@ -200,4 +200,10 @@ export async function verifyPassword(plain, hash) {
   }
   // legacy plain text comparison
   return plain === hash;
+}
+
+export async function pushNotification(db, toUser, type, text, link){
+  if(!toUser||!db) return;
+  const {push: fbPush, ref: fbRef} = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
+  await fbPush(fbRef(db,'notifications/'+toUser),{type,text,link:link||'feed.html',ts:Date.now(),timeStr:ts(),read:false});
 }

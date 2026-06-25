@@ -1,4 +1,4 @@
-import { getSession, clearSession, getDb, ref, set, onValue, isAdmin, icon, SHARED_CSS, sanitize } from './shared.js';
+import { getSession, clearSession, getDb, ref, set, onValue, onDisconnect, isAdmin, icon, SHARED_CSS, sanitize } from './shared.js';
 
 export function buildPage(activeTab, mainHtml, extraCss) {
   const session = getSession();
@@ -27,6 +27,7 @@ export function buildPage(activeTab, mainHtml, extraCss) {
     {id:'friends',   label:'Friends',     ic:'friends',  href:'friends.html'},
     {id:'settings',  label:'Settings',    ic:'settings', href:'settings.html'},
     {id:'support',   label:'Support',     ic:'message',  href:'support.html'},
+    {id:'notifications',label:'Notifications',ic:'online',  href:'notifications.html'},
   ];
 
   const tabsHtml = tabs.map(function(t){
@@ -129,6 +130,12 @@ export function buildPage(activeTab, mainHtml, extraCss) {
     if(u.banned){ set(ref(db,'online/'+session),null); clearSession(); window.location.href='index.html'; }
   }, {onlyOnce: true});
 
+  onValue(ref(db, 'notifications/' + session), function(snap){
+    const notifs = snap.val() || {};
+    const unread = Object.values(notifs).filter(function(n){ return !n.read; }).length;
+    updateBadge('notifications', unread);
+  });
+
   onValue(ref(db, 'users/' + session + '/receivedRequests'), function(snap){
     updateBadge('friends', snap.val() ? Object.keys(snap.val()).length : 0);
   });
@@ -142,6 +149,12 @@ export function buildPage(activeTab, mainHtml, extraCss) {
     });
     updateBadge('messages', unread);
   });
+
+  // Heartbeat — keeps online status fresh, auto-removes on disconnect
+  const onlineRef = ref(db, 'online/' + session);
+  set(onlineRef, {t: Date.now()});
+  onDisconnect(onlineRef).remove();
+  setInterval(function(){ set(onlineRef, {t: Date.now()}); }, 25000);
 
   window.doLogout = function(){
     set(ref(db, 'online/' + session), null);

@@ -95,7 +95,7 @@ window.doLogin = async function(){
   if(!ok){showErr('Wrong password.');if(btn){btn.disabled=false;btn.textContent='Log in';}return;}
   if(d.banned){showErr('You are banned from PolitQ.');if(btn){btn.disabled=false;btn.textContent='Log in';}return;}
   await set(ref(db,'online/'+u),true);
-  setSession(u); window.location.href='feed.html';
+  setSession(u); window.location.href='onboarding.html';
 };
 
 window.doSignup = async function(){
@@ -114,7 +114,7 @@ window.doSignup = async function(){
   const tagMap={};regTags.forEach(t=>tagMap[t]=true);
   await set(ref(db,'users/'+u),{password:hashed,tags:tagMap,bio:b,econ:0,soc:0,friends:{},sentRequests:{},receivedRequests:{}});
   await set(ref(db,'online/'+u),true);
-  setSession(u); window.location.href='feed.html';
+  setSession(u); window.location.href='onboarding.html';
 };
 renderForm();
 </script>

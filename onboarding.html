@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="theme.js"></script>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PolitQ — Welcome</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0a0a0a;--bg2:#111;--bg3:#1a1a1a;--border:#2a2a2a;--text:#e8e8e8;--text2:#888;--radius:8px}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;display:flex;align-items:center;justify-content:center;padding:16px}
+.box{max-width:480px;width:100%;text-align:center}
+.logo{font-size:42px;font-weight:900;letter-spacing:-2px;margin-bottom:4px}
+.logo span{color:#888}
+.step{display:none}.step.active{display:block}
+.step-title{font-size:22px;font-weight:800;margin-bottom:8px}
+.step-sub{font-size:15px;color:var(--text2);margin-bottom:28px;line-height:1.5}
+.feature-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:28px}
+.feature-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:left}
+.feature-icon{font-size:22px;margin-bottom:8px}
+.feature-name{font-size:14px;font-weight:700;margin-bottom:3px}
+.feature-desc{font-size:12px;color:var(--text2)}
+.btn-primary{display:block;width:100%;padding:14px;background:var(--text);color:var(--bg);border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px}
+.btn-primary:hover{opacity:.85}
+.btn-skip{background:transparent;border:none;color:var(--text2);cursor:pointer;font-size:13px;text-decoration:underline}
+.step-dots{display:flex;justify-content:center;gap:6px;margin-bottom:24px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--border)}
+.dot.active{background:var(--text)}
+.tag-row{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:28px;max-height:180px;overflow-y:auto}
+.tag{padding:4px 10px;border-radius:4px;font-size:12px;font-weight:600;border:1px solid transparent;cursor:pointer}
+.tag.sel{outline:2px solid #fff;outline-offset:1px}
+.tag-authleft{background:#3a1010;color:#f08080;border-color:#6a2020}
+.tag-authright{background:#10103a;color:#9090f0;border-color:#20206a}
+.tag-libleft{background:#0f2a10;color:#70c070;border-color:#205a20}
+.tag-libright{background:#2a2000;color:#c8a820;border-color:#5a4800}
+</style>
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body>
+<div class="box">
+  <div class="logo" style="margin-bottom:24px">Polit<span>Q</span></div>
+
+  <div class="step-dots">
+    <div class="dot active" id="dot0"></div>
+    <div class="dot" id="dot1"></div>
+    <div class="dot" id="dot2"></div>
+  </div>
+
+  <!-- Step 0: Welcome -->
+  <div class="step active" id="step0">
+    <div class="step-title">Welcome to PolitQ</div>
+    <div class="step-sub">The platform where political opinions get tested. No echo chambers. No algorithm. Just real debate.</div>
+    <div class="feature-grid">
+      <div class="feature-card"><div class="feature-icon">⚔️</div><div class="feature-name">Debate</div><div class="feature-desc">Challenge anyone, defend your position</div></div>
+      <div class="feature-card"><div class="feature-icon">🧭</div><div class="feature-name">Compass</div><div class="feature-desc">Map your exact political position</div></div>
+      <div class="feature-card"><div class="feature-icon">💬</div><div class="feature-name">Global Chat</div><div class="feature-desc">Real-time, unfiltered discussion</div></div>
+      <div class="feature-card"><div class="feature-icon">👤</div><div class="feature-name">Profile</div><div class="feature-desc">Your ideology, on display for all</div></div>
+    </div>
+    <button class="btn-primary" onclick="nextStep()">Get Started</button>
+    <button class="btn-skip" onclick="finish()">Skip intro</button>
+  </div>
+
+  <!-- Step 1: Pick tags -->
+  <div class="step" id="step1">
+    <div class="step-title">What are your politics?</div>
+    <div class="step-sub">Pick the ideologies that best describe you. These show on your profile and posts.</div>
+    <div class="tag-row" id="tagRow"></div>
+    <button class="btn-primary" onclick="saveTags()">Continue</button>
+    <button class="btn-skip" onclick="finish()">Skip</button>
+  </div>
+
+  <!-- Step 2: Set compass -->
+  <div class="step" id="step2">
+    <div class="step-title">Set your compass</div>
+    <div class="step-sub">Where do you sit on the political spectrum? You can always change this later.</div>
+    <div style="margin-bottom:16px">
+      <div style="font-size:13px;color:var(--text2);margin-bottom:6px">Economic: <strong id="econVal">0</strong></div>
+      <input type="range" min="-10" max="10" value="0" id="econRange" style="width:100%;accent-color:#666" oninput="document.getElementById('econVal').textContent=this.value">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2)"><span>Left</span><span>Right</span></div>
+    </div>
+    <div style="margin-bottom:24px">
+      <div style="font-size:13px;color:var(--text2);margin-bottom:6px">Social: <strong id="socVal">0</strong></div>
+      <input type="range" min="-10" max="10" value="0" id="socRange" style="width:100%;accent-color:#666" oninput="document.getElementById('socVal').textContent=this.value">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2)"><span>Libertarian</span><span>Authoritarian</span></div>
+    </div>
+    <button class="btn-primary" onclick="saveCompass()">Done — Take me to the feed</button>
+    <button class="btn-skip" onclick="finish()">Skip</button>
+  </div>
+</div>
+
+<script type="module">
+import { getDb,ref,update,getSession,ALL_TAGS,tagClass } from './shared.js';
+const session=getSession();
+if(!session){window.location.href='index.html';}
+
+// Check if already onboarded
+const db=getDb();
+let step=0, selTags=[];
+
+// Build tag row
+const row=document.getElementById('tagRow');
+ALL_TAGS.forEach(t=>{
+  const k=tagClass(t);
+  const el=document.createElement('span');
+  el.className=`tag tag-${k}`;
+  el.textContent=t;
+  el.onclick=()=>{
+    const i=selTags.indexOf(t);
+    if(i===-1){selTags.push(t);el.classList.add('sel');}
+    else{selTags.splice(i,1);el.classList.remove('sel');}
+  };
+  row.appendChild(el);
+});
+
+window.nextStep=()=>goTo(step+1);
+
+window.goTo=(n)=>{
+  document.getElementById('step'+step).classList.remove('active');
+  document.getElementById('dot'+step).classList.remove('active');
+  step=n;
+  document.getElementById('step'+step).classList.add('active');
+  document.getElementById('dot'+step).classList.add('active');
+};
+
+window.saveTags=async()=>{
+  if(selTags.length){
+    const tagMap={};selTags.forEach(t=>tagMap[t]=true);
+    await update(ref(db,'users/'+session),{tags:tagMap});
+  }
+  goTo(2);
+};
+
+window.saveCompass=async()=>{
+  const e=parseInt(document.getElementById('econRange').value);
+  const s=parseInt(document.getElementById('socRange').value);
+  await update(ref(db,'users/'+session),{econ:e,soc:s,onboarded:true});
+  window.location.href='feed.html';
+};
+
+window.finish=async()=>{
+  await update(ref(db,'users/'+session),{onboarded:true});
+  window.location.href='feed.html';
+};
+</script>
+</body>
+</html>

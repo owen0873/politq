@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="theme.js"></script>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PolitQ — Notifications</title>
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body><div id="app"></div>
+<script type="module">
+import { buildPage } from './layout.js';
+import { getSession,getDb,ref,onValue,update,remove,sanitize,icon,ts } from './shared.js';
+const session=getSession();
+if(!session){window.location.href='index.html';}
+
+buildPage('notifications',`<div class="page-content" id="notifContent"><div class="empty-state">Loading...</div></div>`,`
+.notif-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px;cursor:pointer;transition:.12s}
+.notif-card:hover{background:var(--bg3)}
+.notif-card.unread{border-left:3px solid #7ab8f5}
+.notif-icon{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px}
+.notif-text{flex:1;font-size:13px;line-height:1.5}
+.notif-time{font-size:11px;color:var(--text3);margin-top:2px}
+`);
+
+const db=getDb();
+let notifs={};
+onValue(ref(db,'notifications/'+session),snap=>{
+  notifs=snap.val()||{};
+  render();
+});
+
+function render(){
+  const el=document.getElementById('notifContent');if(!el)return;
+  const list=Object.entries(notifs).sort((a,b)=>(b[1].ts||0)-(a[1].ts||0));
+  if(!list.length){el.innerHTML=`<div class="empty-state">No notifications yet.</div>`;return;}
+  const unread=list.filter(([,n])=>!n.read).length;
+  el.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-size:16px;font-weight:700">Notifications ${unread>0?`<span style="background:var(--red-hi);color:#fff;border-radius:10px;font-size:11px;padding:1px 7px;margin-left:4px">${unread}</span>`:''}
+      </div>
+      ${unread>0?`<button class="btn" onclick="markAllRead()">Mark all read</button>`:''}
+    </div>
+    ${list.map(([id,n])=>`<div class="notif-card${n.read?'':' unread'}" onclick="openNotif('${id}','${n.link||'feed.html'}')">
+      <div class="notif-icon" style="background:${n.type==='mention'?'#1a2e3a':n.type==='challenge'?'#2a1a0a':'#1a1a3a'}">${n.type==='mention'?'@':n.type==='challenge'?'⚔️':'👤'}</div>
+      <div style="flex:1"><div class="notif-text">${sanitize(n.text||'')}</div><div class="notif-time">${n.timeStr||''}</div></div>
+      ${!n.read?`<div style="width:8px;height:8px;border-radius:50%;background:var(--red-hi);flex-shrink:0;margin-top:4px"></div>`:''}
+    </div>`).join('')}`;
+}
+
+window.openNotif=async(id,link)=>{
+  await update(ref(db,'notifications/'+session+'/'+id),{read:true});
+  window.location.href=link;
+};
+window.markAllRead=async()=>{
+  const upd={};
+  Object.keys(notifs).forEach(id=>upd['notifications/'+session+'/'+id+'/read']=true);
+  await update(ref(db),upd);
+};
+</script>
+</body>
+</html>
